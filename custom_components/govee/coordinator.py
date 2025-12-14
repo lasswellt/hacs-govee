@@ -10,6 +10,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .api import GoveeApiClient, GoveeApiError, GoveeAuthError, GoveeRateLimitError
+from .const import UNSUPPORTED_DEVICE_SKUS
 from .models import GoveeDevice, GoveeDeviceState, SceneOption
 
 if TYPE_CHECKING:
@@ -47,10 +48,23 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
     async def _async_setup(self) -> None:
         """Set up the coordinator - fetch devices on first load."""
         _LOGGER.debug("Setting up Govee coordinator - fetching devices")
+        skipped_count = 0
         try:
             raw_devices = await self.client.get_devices()
             for raw_device in raw_devices:
                 device = GoveeDevice.from_api(raw_device)
+
+                # Skip unsupported device types (Govee Home app groups)
+                if device.sku in UNSUPPORTED_DEVICE_SKUS:
+                    _LOGGER.debug(
+                        "Skipping unsupported device group: %s (%s) - "
+                        "Govee Home app groups do not support API control",
+                        device.device_name,
+                        device.sku,
+                    )
+                    skipped_count += 1
+                    continue
+
                 self.devices[device.device_id] = device
                 _LOGGER.debug(
                     "Discovered device: %s (%s) - %s",
@@ -59,7 +73,11 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                     device.device_type,
                 )
 
-            _LOGGER.info("Discovered %d Govee devices", len(self.devices))
+            _LOGGER.info(
+                "Discovered %d Govee devices (%d unsupported groups skipped)",
+                len(self.devices),
+                skipped_count,
+            )
 
         except GoveeAuthError as err:
             raise ConfigEntryAuthFailed("Invalid API key") from err

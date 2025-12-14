@@ -355,6 +355,25 @@ class GoveeApiClient:
             device_id, sku, CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH, 0
         )
 
+    async def set_nightlight(
+        self, device_id: str, sku: str, on: bool
+    ) -> dict[str, Any]:
+        """Turn nightlight mode on or off.
+
+        Args:
+            device_id: Device identifier
+            sku: Device model
+            on: True to enable nightlight, False to disable
+
+        Returns:
+            API response
+        """
+        from .const import CAPABILITY_TOGGLE, INSTANCE_NIGHTLIGHT_TOGGLE
+
+        return await self.control_device(
+            device_id, sku, CAPABILITY_TOGGLE, INSTANCE_NIGHTLIGHT_TOGGLE, 1 if on else 0
+        )
+
     async def set_brightness(
         self, device_id: str, sku: str, brightness: int
     ) -> dict[str, Any]:

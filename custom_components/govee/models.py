@@ -11,12 +11,14 @@ from .api.const import (
     CAPABILITY_ON_OFF,
     CAPABILITY_RANGE,
     CAPABILITY_SEGMENT_COLOR,
+    CAPABILITY_TOGGLE,
     INSTANCE_BRIGHTNESS,
     INSTANCE_COLOR_RGB,
     INSTANCE_COLOR_TEMP,
     INSTANCE_DIY_SCENE,
     INSTANCE_LIGHT_SCENE,
     INSTANCE_MUSIC_MODE,
+    INSTANCE_NIGHTLIGHT_TOGGLE,
     INSTANCE_POWER_SWITCH,
     INSTANCE_SEGMENTED_BRIGHTNESS,
     INSTANCE_SEGMENTED_COLOR,
@@ -173,6 +175,11 @@ class GoveeDevice:
         """Check if device supports music reactive mode."""
         return self.has_capability(CAPABILITY_MUSIC_SETTING, INSTANCE_MUSIC_MODE)
 
+    @property
+    def supports_nightlight(self) -> bool:
+        """Check if device supports nightlight toggle mode."""
+        return self.has_capability(CAPABILITY_TOGGLE, INSTANCE_NIGHTLIGHT_TOGGLE)
+
     # === Range Helpers ===
 
     def get_brightness_range(self) -> tuple[int, int]:
@@ -226,6 +233,9 @@ class GoveeDeviceState:
     segment_colors: dict[int, tuple[int, int, int]] | None = None
     segment_brightness: dict[int, int] | None = None
 
+    # Toggle states
+    nightlight_on: bool | None = None
+
     # Appliance-specific states
     humidity: int | None = None
     temperature: float | None = None
@@ -256,6 +266,8 @@ class GoveeDeviceState:
                     state.color_rgb = (r, g, b)
             elif instance == INSTANCE_COLOR_TEMP:
                 state.color_temp_kelvin = value
+            elif instance == INSTANCE_NIGHTLIGHT_TOGGLE:
+                state.nightlight_on = value == 1
             elif instance == "online":
                 state.online = value
 
@@ -274,6 +286,8 @@ class GoveeDeviceState:
             self.color_rgb = new_state.color_rgb
         if new_state.color_temp_kelvin is not None:
             self.color_temp_kelvin = new_state.color_temp_kelvin
+        if new_state.nightlight_on is not None:
+            self.nightlight_on = new_state.nightlight_on
         self.online = new_state.online
 
     def apply_optimistic_update(
@@ -315,6 +329,8 @@ class GoveeDeviceState:
             if isinstance(value, dict):
                 self.current_scene = f"diy_{value.get('value')}"
                 self.current_scene_name = value.get("name")
+        elif instance == INSTANCE_NIGHTLIGHT_TOGGLE:
+            self.nightlight_on = value == 1
 
 
 @dataclass

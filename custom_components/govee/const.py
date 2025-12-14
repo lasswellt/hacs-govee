@@ -28,6 +28,14 @@ DEVICE_TYPE_THERMOMETER = "devices.types.thermometer"
 DEVICE_TYPE_SENSOR = "devices.types.sensor"
 DEVICE_TYPE_AROMA_DIFFUSER = "devices.types.aroma_diffuser"
 
+# Unsupported device SKUs (Govee Home app groups/shortcuts - API returns "devices not exist")
+# These are virtual pseudo-devices that cannot be controlled through the API
+UNSUPPORTED_DEVICE_SKUS = {
+    "SameModeGroup",  # Same Model device group
+    "BaseGroup",  # Base device group
+    "DreamViewScenic",  # DreamView scene shortcut
+}
+
 # Platform mapping by device type
 DEVICE_TYPE_PLATFORMS: dict[str, list[Platform]] = {
     DEVICE_TYPE_LIGHT: [Platform.LIGHT, Platform.SELECT],

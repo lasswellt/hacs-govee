@@ -6,13 +6,14 @@
 
 Control your Govee lights, LED strips, and smart plugs through Home Assistant using the official Govee API v2.0.
 
-**Current Version:** 2025.12.1
+**Current Version:** 2025.12.2
 
 ## Features
 
 - **Lights & LED Strips** - On/off, brightness, color (RGB), color temperature
 - **Scenes** - Select from dynamic scenes and DIY scenes via dropdown
 - **Segment Control** - Control individual segments on RGBIC strips
+- **Night Light Mode** - Toggle for warm backlight-only mode (on supported devices)
 - **Music Mode** - Activate music-reactive lighting modes
 - **Smart Plugs** - On/off control for Govee smart outlets
 - **Rate Limiting** - Built-in protection against API limits (100/min, 10,000/day)
@@ -33,6 +34,7 @@ Control your Govee lights, LED strips, and smart plugs through Home Assistant us
   - [Light Control](#light-control)
   - [Scene Selection](#scene-selection)
   - [Segment Control](#segment-control)
+  - [Night Light Mode](#night-light-mode)
   - [Music Mode](#music-mode)
 - [Services](#services)
 - [Troubleshooting](#troubleshooting)
@@ -181,6 +183,14 @@ data:
   segments: [0, 1, 2, 3, 4]
   rgb_color: [255, 0, 0]
 ```
+
+### Night Light Mode
+
+Some Govee devices (like the H601F recessed lighting) support a Night Light mode that activates a warm, dim backlight. For these devices, a separate **Switch** entity is created:
+
+- **Night Light** - Toggle switch to enable/disable night light mode
+
+The night light switch appears automatically for supported devices and can be controlled like any Home Assistant switch - via the UI, automations, or voice assistants.
 
 ### Music Mode
 

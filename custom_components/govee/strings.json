@@ -47,6 +47,11 @@
       "diy_scene": {
         "name": "DIY Scene"
       }
+    },
+    "switch": {
+      "nightlight": {
+        "name": "Night Light"
+      }
     }
   },
   "services": {
