@@ -1,127 +1,302 @@
-# 'Govee' integration
+# Govee Integration for Home Assistant
 
-The Govee integration allows you to control and monitor lights and switches using the Govee API.
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
+[![GitHub Release](https://img.shields.io/github/release/LaggAt/hacs-govee.svg)](https://github.com/LaggAt/hacs-govee/releases)
+[![GitHub License](https://img.shields.io/github/license/LaggAt/hacs-govee.svg)](https://github.com/LaggAt/hacs-govee/blob/master/LICENSE)
 
-## Discontinuation - who wants to continue?
+Control your Govee lights, LED strips, and smart plugs through Home Assistant using the official Govee API v2.0.
 
-I will probably only allow pull reqests which fix breaking changes. If you want to take over this repository feel free to contact me. Preferably I will hand over to some developers which have done pull requests in the past. Give me some time to answer - thanks.
+## Features
 
-Greetings, Florian.
+- **Lights & LED Strips** - On/off, brightness, color (RGB), color temperature
+- **Scenes** - Select from dynamic scenes and DIY scenes via dropdown
+- **Segment Control** - Control individual segments on RGBIC strips
+- **Music Mode** - Activate music-reactive lighting modes
+- **Smart Plugs** - On/off control for Govee smart outlets
+- **Rate Limiting** - Built-in protection against API limits (100/min, 10,000/day)
 
---------------------------------------------------
+---
+
+## Table of Contents
+
+- [Installation](#installation)
+  - [HACS Installation (Recommended)](#hacs-installation-recommended)
+  - [Manual Installation](#manual-installation)
+- [Getting Your API Key](#getting-your-api-key)
+- [Configuration](#configuration)
+  - [Initial Setup](#initial-setup)
+  - [Configuration Options](#configuration-options)
+- [Supported Devices](#supported-devices)
+- [Features & Usage](#features--usage)
+  - [Light Control](#light-control)
+  - [Scene Selection](#scene-selection)
+  - [Segment Control](#segment-control)
+  - [Music Mode](#music-mode)
+- [Services](#services)
+- [Troubleshooting](#troubleshooting)
+- [Support](#support)
+
+---
 
 ## Installation
 
-* The installation is done inside [HACS](https://hacs.xyz/) (Home Assistant Community Store). If you don't have HACS, you must install it before adding this integration. [Installation instructions here.](https://hacs.xyz/docs/setup/download)
-* Once HACS is installed, navigate to the 'Integrations' tab in HACS and search for the 'Govee' integration there. Click "Download this repository in HACS". On the next screen, select "Download". Once fully downloaded, restart HomeAssistant.
-* In the sidebar, click 'Configuration', then 'Devices & Services'. Click the + icon to add "Govee" to your Home Assistant installation. An API key
-is required, you need to obtain it in the 'Govee Home' app on your mobile device. This can be done from the Account Page (Far right icon at the bottom) > Settings (top right icon) > About Us > Apply for API Key. The key will be sent to your account email.
+### HACS Installation (Recommended)
 
-## Sponsor
+1. **Install HACS** if you haven't already - [HACS Installation Guide](https://hacs.xyz/docs/setup/download)
 
-A lot of effort is going into that integration. So if you can afford it and want to support us:
+2. **Add the Integration**
+   - Open HACS in your Home Assistant sidebar
+   - Click on **Integrations**
+   - Click the **+ Explore & Download Repositories** button
+   - Search for **"Govee"**
+   - Click **Download**
+   - Select the latest version and click **Download**
 
-<a href="https://www.buymeacoffee.com/LaggAt" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+3. **Restart Home Assistant**
+   - Go to **Settings** > **System** > **Restart**
 
-Thank you!
+4. **Add the Integration**
+   - Go to **Settings** > **Devices & Services**
+   - Click **+ Add Integration**
+   - Search for **"Govee"**
+   - Follow the setup wizard
 
-## Is it stable?
+### Manual Installation
 
-We think so. It is used often, and the support thread is active.
+1. Download the latest release from [GitHub Releases](https://github.com/LaggAt/hacs-govee/releases)
+2. Extract and copy the `custom_components/govee` folder to your Home Assistant `custom_components` directory
+3. Restart Home Assistant
+4. Add the integration via **Settings** > **Devices & Services**
 
-![usage statistics per version](https://raw.githubusercontent.com/LaggAt/actions/main/output/goveestats_installations.png)
+---
 
-Usage Data is taken from Home Assistant analytics, and plotted over time by us. You need to enable analytics if you want to show here.
+## Getting Your API Key
 
-## Is there an issue right now?
+An API key is required to use this integration. Here's how to get one:
 
-This graph uses the same library to do simple checks. If you see round dots on the right of the graph (= today), probably there is an issue.
+1. **Open the Govee Home App** on your mobile device
 
-![Govee API running?](https://raw.githubusercontent.com/LaggAt/actions/main/output/govee-api-up.png)
+2. **Navigate to Settings**
+   - Tap the **profile icon** (far right at bottom)
+   - Tap the **gear icon** (Settings) in the top right
 
-## Pulling or assuming state
+3. **Request API Key**
+   - Tap **About Us**
+   - Tap **Apply for API Key**
+   - Fill out the form with your information
 
-Some devices do not support pulling state. In this case we assume the state on your last input.
-For others, we assume the state just after controlling the light, but will otherwise request it from the cloud API.
+4. **Check Your Email**
+   - Your API key will be sent to the email associated with your Govee account
+   - This usually takes a few minutes, but can take up to 24 hours
 
-## DISABLING state updates for specific attributes
+> **Note:** Keep your API key secure. Do not share it publicly.
 
-You shouldn't use this feature in normal operation, but if something is broke e.g. on Govee API you could help yourself and others on the forum with a little tweak.
+---
 
-Not all attribute updates can be disabled, but most can. Fiddling here could also lead to other misbehavours, but it could help with some issues.
+## Configuration
 
-Let's talk about an example:
+### Initial Setup
 
-### What if power_state isn't correctly returned from API?
+When adding the integration, you'll be prompted for:
 
-We can have state from two sources: 'API' and 'HISTORY'. History for example means, when we turn on a light we already guess the state will be on, so we set a history state of on before we get data from the API. In the default configuration you could also see this, as it shows two buttons until the final state from API arrives.
+| Field | Description |
+|-------|-------------|
+| **API Key** | Your Govee API key from the app |
+| **Poll Interval** | How often to check device state (default: 30 seconds) |
 
-![two-button-state](https://community-assets.home-assistant.io/original/3X/d/7/d7d2ee09520672e7671fdeed5bb461fcfaab8493.png)
+### Configuration Options
 
-So let's say we have an issue, that the ON/OFF state from API is wrong, we always get OFF. (This happended, and this is why I developed that feature). If we disable the power state we get from API we could work around this, and thats exactly what we do:
+After setup, you can configure additional options via **Settings** > **Devices & Services** > **Govee** > **Configure**:
 
-1. 'API' or 'History': state from which source do we want to disable? In our example the API state is wrong, as we could see in logs, so we choose 'API'
-2. Look up the attribute you want to disable in GoveeDevice data class. Don't worry, you don't need to understand any of the code here. [Here is that data class (click)](https://github.com/LaggAt/python-govee-api/blob/master/govee_api_laggat/govee_dtos.py). In our Example we will find 'power_state'
-3. Next, in Home Assistant we open Configuration - Integrations and click on the options on the Govee integration. Here is an example how this config option could look:
+| Option | Description | Default |
+|--------|-------------|---------|
+| **API Key** | Update your API key (requires restart) | - |
+| **Poll Interval** | State polling frequency in seconds (requires restart) | 30 |
+| **Use Assumed State** | Shows two buttons (on/off) instead of toggle | True |
+| **Offline is Off** | Show offline devices as "off" instead of "unavailable" | False |
+| **Disable Attribute Updates** | Advanced: disable specific state updates | Empty |
 
-![DISABLE state updates option](https://community-assets.home-assistant.io/original/3X/6/c/6cffe0de8b100ef4efc0e460482ff659b8f9444c.png)
+---
 
-4. With the information from 1. and 2. we could write a string disabling power_state from API. This will do the trick for our case:
+## Supported Devices
+
+This integration supports Govee devices that are compatible with the Govee API v2.0:
+
+| Device Type | Platforms Created |
+|-------------|-------------------|
+| LED Lights & Strips | Light, Select (scenes) |
+| Smart Plugs/Sockets | Switch |
+| RGBIC Strips | Light, Select (scenes) + Segment services |
+
+> **Note:** Not all Govee devices support the cloud API. Bluetooth-only devices are not supported.
+
+---
+
+## Features & Usage
+
+### Light Control
+
+Light entities support standard Home Assistant light controls:
+
+- **On/Off** - Turn lights on or off
+- **Brightness** - Adjust brightness (0-100%)
+- **Color** - Set RGB color
+- **Color Temperature** - Set warm/cool white temperature
+- **Effects** - Select from available scenes (if supported)
+
+### Scene Selection
+
+For devices with many scenes, a **Select** entity is created:
+
+- **Scene** - Dynamic scenes from Govee cloud
+- **DIY Scene** - Your custom DIY scenes (disabled by default)
+
+To enable DIY scenes:
+1. Go to **Settings** > **Devices & Services** > **Govee**
+2. Click on your device
+3. Find the "DIY Scene" entity and enable it
+
+### Segment Control
+
+RGBIC strips support individual segment control via services:
+
+```yaml
+# Set segments 0-4 to red
+service: govee.set_segment_color
+target:
+  entity_id: light.govee_led_strip
+data:
+  segments: [0, 1, 2, 3, 4]
+  rgb_color: [255, 0, 0]
 ```
-API:power_state
+
+### Music Mode
+
+Activate music-reactive modes on supported devices:
+
+```yaml
+service: govee.set_music_mode
+target:
+  entity_id: light.govee_led_strip
+data:
+  mode: "Energic"
+  sensitivity: 80
+  auto_color: true
 ```
 
-IF you want to disable a state from both sources, do that separately. You may have as many disables as you like.
-```
-API:online;HISTORY:online
-```
+---
 
-[If you fix an issue like that, consider helping other users on the forum thread (click).](https://community.home-assistant.io/t/govee-integration/228516/438?u=laggat)
+## Services
 
-ALWAYS REMEMBER: this should always be a temporarly workaround, if you use it in daily business you should probably request a feature or bug fix :)
+### govee.set_segment_color
 
-To remind you disabling it asap, this wil log a warning on every update.
+Set color for specific segments of an RGBIC light strip.
 
-## What is config/govee_learning.yaml
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `segments` | list | Yes | List of segment indices (0-based) |
+| `rgb_color` | list | Yes | RGB color as [R, G, B] (0-255) |
 
-Usually you don't have to do anything here - just in case something feels wrong read on:
+### govee.set_segment_brightness
 
-```
-40:83:FF:FF:FF:FF:FF:FF:
-  set_brightness_max: 100
-  get_brightness_max: 100
-  before_set_brightness_turn_on: false
-  config_offline_is_off: false
-```
+Set brightness for specific segments.
 
-Different Govee devices use different settings. These will be learned by the used library, or can be configured by you.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `segments` | list | Yes | List of segment indices (0-based) |
+| `brightness` | int | Yes | Brightness percentage (0-100) |
 
-* set_brightness_max: is autolearned, defines the range to set the brightness to 0-100 or 0-254.
-* get_brightness_max: is autolearned, defines the range how to interpet brightness state (also 0-100 or 0-254).
-* before_set_brightness_turn_on: Configurable by you, default false. When true, if the device is off and you set the brightness > 0 the device is turned on first, then after a second the brightness is set. Some device don't turn on with the set brightness command.
-* config_offline_is_off: Configurable by you, default false. This is useful if your device is e.g. powered by a TV's USB port, where when the TV is off, the LED is also off. Usually we stay in the state we know, this changes this to OFF state when the device disconnects.
+### govee.set_music_mode
 
-## Support
+Activate music reactive mode.
 
-Support thread is here: <https://community.home-assistant.io/t/govee-led-strips-integration/228516>
-There you'll also find links to code repositories and their issue trackers.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `mode` | string | Yes | Music mode name |
+| `sensitivity` | int | No | Microphone sensitivity (0-100, default: 50) |
+| `auto_color` | bool | No | Enable automatic color changes (default: true) |
+| `rgb_color` | list | No | Fixed color when auto_color is false |
 
-For bug reports, include the debug log, which can be enabled in configuration YAML + restart:
+### govee.refresh_scenes
 
-```YAML
+Refresh the scene list from Govee cloud (for Select entities).
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**"Cannot connect" error during setup**
+- Verify your API key is correct
+- Check your internet connection
+- Ensure your Govee account has API access enabled
+
+**Devices not appearing**
+- Only cloud-enabled devices appear in the API
+- Bluetooth-only devices are not supported
+- Try refreshing the integration
+
+**State not updating**
+- Increase the poll interval if you have many devices
+- Some devices don't support state queries (assumed state is used)
+
+**Rate limit errors**
+- The API has limits: 100 requests/minute, 10,000/day
+- Increase your poll interval
+- Reduce the number of automations calling Govee services
+
+### Enable Debug Logging
+
+Add to your `configuration.yaml`:
+
+```yaml
 logger:
   default: warning
   logs:
-    homeassistant.components.govee: debug
     custom_components.govee: debug
-    govee_api_laggat: debug
 ```
 
-Then in Settings - Logs click on “full logs” button and add them to the bug report after removing personal data.
+Then restart Home Assistant and check **Settings** > **System** > **Logs**.
 
-## Caveats
+### Disable Attribute Updates (Advanced)
 
-You can set a poll interval, but don't set it too low as the API has a limit of 60 requests per minute, and each device needs one request per state pull and control action.
-If you have more than one lamp use a higher interval. Govee wants to implement a single request for all devices in 2021.
+If API returns incorrect state for specific attributes, you can disable them:
 
-Once the integration is active, you will see all your registered devices, and may control on/off, brightness, color temperature and color.
+1. Go to **Govee** integration options
+2. In "Disable Attribute Updates", enter: `API:power_state`
+3. Format: `SOURCE:attribute` where SOURCE is `API` or `HISTORY`
+4. Multiple: `API:power_state;HISTORY:online`
+
+> **Warning:** This is a workaround. Report the underlying issue.
+
+---
+
+## Support
+
+- **Community Forum:** [Home Assistant Community - Govee Integration](https://community.home-assistant.io/t/govee-led-strips-integration/228516)
+- **Issue Tracker:** [GitHub Issues](https://github.com/LaggAt/hacs-govee/issues)
+- **Source Code:** [GitHub Repository](https://github.com/LaggAt/hacs-govee)
+
+### Reporting Bugs
+
+When reporting issues, please include:
+1. Home Assistant version
+2. Integration version
+3. Debug logs (with personal data removed)
+4. Device model (SKU)
+5. Steps to reproduce
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Acknowledgments
+
+- Original integration by [@LaggAt](https://github.com/LaggAt)
+- Govee API v2.0 migration and enhancements
+- All contributors and community members
