@@ -1,6 +1,8 @@
 """Config flow for Govee integration."""
+from __future__ import annotations
 
 import logging
+from typing import Any
 
 from govee_api_laggat import Govee, GoveeNoLearningStorage, GoveeError
 
@@ -8,6 +10,7 @@ from homeassistant import config_entries, core, exceptions
 import homeassistant.helpers.config_validation as cv
 from homeassistant.const import CONF_API_KEY, CONF_DELAY
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
 import voluptuous as vol
 
 from .const import (
@@ -20,7 +23,9 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-async def validate_api_key(hass: core.HomeAssistant, user_input):
+async def validate_api_key(
+    hass: core.HomeAssistant, user_input: dict[str, Any]
+) -> dict[str, Any]:
     """Validate the user input allows us to connect.
 
     Return info that you want to store in the config entry.
@@ -35,8 +40,10 @@ async def validate_api_key(hass: core.HomeAssistant, user_input):
     return user_input
 
 
-async def validate_disabled_attribute_updates(hass: core.HomeAssistant, user_input):
-    """Validate format of the ignore_device_attributes parameter string
+async def validate_disabled_attribute_updates(
+    hass: core.HomeAssistant, user_input: dict[str, Any]
+) -> dict[str, Any]:
+    """Validate format of the ignore_device_attributes parameter string.
 
     Return info that you want to store in the config entry.
     """
@@ -58,9 +65,11 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Handle the initial step."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             try:
                 user_input = await validate_api_key(self.hass, user_input)
@@ -70,7 +79,7 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_API_KEY] = "cannot_connect"
             except GoveeError as govee_ex:
                 _LOGGER.exception("Govee library error: %s", govee_ex)
-                errors["base"] = "govee_ex"
+                errors["base"] = "govee_error"
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception: %s", ex)
                 errors["base"] = "unknown"
@@ -83,7 +92,7 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_API_KEY): cv.string,
-                    vol.Optional(CONF_DELAY, default=10): cv.positive_int,
+                    vol.Optional(CONF_DELAY, default=30): cv.positive_int,
                 }
             ),
             errors=errors,
@@ -91,7 +100,9 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> GoveeOptionsFlowHandler:
         """Get the options flow."""
         return GoveeOptionsFlowHandler(config_entry)
 
@@ -101,22 +112,26 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
 
     VERSION = 1
 
-    def __init__(self, config_entry):
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.options = dict(config_entry.options)
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Manage the options."""
         return await self.async_step_user()
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Manage the options."""
         # get the current value for API key for comparison and default value
         old_api_key = self.config_entry.options.get(
             CONF_API_KEY, self.config_entry.data.get(CONF_API_KEY, "")
         )
 
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             # check if API Key changed and is valid
             try:
@@ -129,7 +144,7 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
                 errors[CONF_API_KEY] = "cannot_connect"
             except GoveeError as govee_ex:
                 _LOGGER.exception("Govee library error: %s", govee_ex)
-                errors["base"] = "govee_ex"
+                errors["base"] = "govee_error"
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception: %s", ex)
                 errors["base"] = "unknown"
@@ -172,7 +187,7 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_DELAY,
                     default=self.config_entry.options.get(
-                        CONF_DELAY, self.config_entry.data.get(CONF_DELAY, 10)
+                        CONF_DELAY, self.config_entry.data.get(CONF_DELAY, 30)
                     ),
                 ): cv.positive_int,
                 # to options flow
@@ -200,7 +215,7 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    async def _update_options(self):
+    async def _update_options(self) -> FlowResult:
         """Update config entry options."""
         return self.async_create_entry(title=DOMAIN, data=self.options)
 

@@ -1,6 +1,9 @@
 """The Govee integration."""
+from __future__ import annotations
+
 import asyncio
 import logging
+from typing import Any
 
 from govee_api_laggat import Govee
 import voluptuous as vol
@@ -20,20 +23,20 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 PLATFORMS = ["light"]
 
 
-def setup(hass, config):
+def setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """This setup does nothing, we use the async setup."""
     _LOGGER.debug("Govee setup called")
     return True
 
 
-async def async_setup(hass: HomeAssistant, config: dict):
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the Govee component."""
     _LOGGER.debug("Govee async_setup called")
     hass.data[DOMAIN] = {}
     return True
 
 
-def is_online(online: bool):
+def is_online(online: bool) -> None:
     """Log online/offline change."""
     msg = "API is offline."
     if online:
@@ -41,7 +44,7 @@ def is_online(online: bool):
     _LOGGER.warning(msg)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Govee from a config entry."""
 
     # get vars from ConfigFlow/OptionsFlow
@@ -74,7 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
 
     unload_ok = all(

@@ -1,13 +1,16 @@
 """Govee platform."""
+from __future__ import annotations
 
 from datetime import timedelta, datetime
 import logging
+from typing import Any
 
 from propcache import cached_property
 
 from govee_api_laggat import Govee, GoveeDevice, GoveeError
 from govee_api_laggat.govee_dtos import GoveeSource
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
@@ -16,6 +19,8 @@ from homeassistant.components.light import (
     LightEntity,
 )
 from homeassistant.const import CONF_DELAY
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import color
 
@@ -31,16 +36,18 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
     """Set up the Govee Light platform."""
     _LOGGER.debug("Setting up Govee lights")
     config = entry.data
     options = entry.options
-    hub = hass.data[DOMAIN]["hub"]
+    hub: Govee = hass.data[DOMAIN]["hub"]
 
     # refresh
     update_interval = timedelta(
-        seconds=options.get(CONF_DELAY, config.get(CONF_DELAY, 10))
+        seconds=options.get(CONF_DELAY, config.get(CONF_DELAY, 30))
     )
     coordinator = GoveeDataUpdateCoordinator(
         hass, _LOGGER, update_interval=update_interval, config_entry=entry
@@ -63,7 +70,14 @@ async def async_setup_entry(hass, entry, async_add_entities):
     # )
 
 
-def add_entity(async_add_entities, hub, entry, coordinator, device):
+def add_entity(
+    async_add_entities: AddEntitiesCallback,
+    hub: Govee,
+    entry: ConfigEntry,
+    coordinator: GoveeDataUpdateCoordinator,
+    device: GoveeDevice,
+) -> None:
+    """Add a single Govee light entity."""
     async_add_entities(
         [GoveeLightEntity(hub, entry.title, coordinator, device)],
         update_before_add=False,
@@ -114,7 +128,7 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     hub.config_offline_is_off = None  # allow override in learning info
 
-                # govee will change this to a single request in 2021
+                # Fetch state for each device (one API request per device)
                 device_states = await hub.get_states()
                 for device in device_states:
                     if device.error:

@@ -6,6 +6,7 @@
     },
     "error": {
       "cannot_connect": "Cannot connect. Is the API-Key correct and the internet connection working?",
+      "govee_error": "Govee API library error. Check logs for details.",
       "unknown": "Unknown Error."
     },
     "step": {
@@ -22,6 +23,7 @@
   "options": {
     "error": {
       "cannot_connect": "Cannot connect. Is the API-Key correct and the internet connection working?",
+      "govee_error": "Govee API library error. Check logs for details.",
       "unknown": "Unknown Error.",
       "disabled_attribute_updates_wrong": "Wrong format, see README above."
     },
