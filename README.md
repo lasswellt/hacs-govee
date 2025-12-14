@@ -1,10 +1,12 @@
 # Govee Integration for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/LaggAt/hacs-govee.svg)](https://github.com/LaggAt/hacs-govee/releases)
 [![GitHub License](https://img.shields.io/github/license/LaggAt/hacs-govee.svg)](https://github.com/LaggAt/hacs-govee/blob/master/LICENSE)
 
 Control your Govee lights, LED strips, and smart plugs through Home Assistant using the official Govee API v2.0.
+
+**Current Version:** 2025.12.1
 
 ## Features
 
@@ -42,20 +44,30 @@ Control your Govee lights, LED strips, and smart plugs through Home Assistant us
 
 ### HACS Installation (Recommended)
 
+This is a custom HACS repository. Follow these steps to install:
+
 1. **Install HACS** if you haven't already - [HACS Installation Guide](https://hacs.xyz/docs/setup/download)
 
-2. **Add the Integration**
+2. **Add Custom Repository**
    - Open HACS in your Home Assistant sidebar
    - Click on **Integrations**
-   - Click the **+ Explore & Download Repositories** button
-   - Search for **"Govee"**
+   - Click the **three dots menu** (⋮) in the top right corner
+   - Select **Custom repositories**
+   - In the dialog that appears:
+     - **Repository:** `https://github.com/LaggAt/hacs-govee`
+     - **Category:** `Integration`
+   - Click **Add**
+
+3. **Download the Integration**
+   - The Govee integration should now appear in HACS
+   - Click on **Govee**
    - Click **Download**
    - Select the latest version and click **Download**
 
-3. **Restart Home Assistant**
+4. **Restart Home Assistant**
    - Go to **Settings** > **System** > **Restart**
 
-4. **Add the Integration**
+5. **Add the Integration**
    - Go to **Settings** > **Devices & Services**
    - Click **+ Add Integration**
    - Search for **"Govee"**
