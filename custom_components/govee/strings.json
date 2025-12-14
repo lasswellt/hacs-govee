@@ -6,7 +6,6 @@
     },
     "error": {
       "cannot_connect": "Cannot connect. Is the API-Key correct and the internet connection working?",
-      "govee_error": "Govee API library error. Check logs for details.",
       "unknown": "Unknown Error."
     },
     "step": {
@@ -23,7 +22,6 @@
   "options": {
     "error": {
       "cannot_connect": "Cannot connect. Is the API-Key correct and the internet connection working?",
-      "govee_error": "Govee API library error. Check logs for details.",
       "unknown": "Unknown Error.",
       "disabled_attribute_updates_wrong": "Wrong format, see README above."
     },
@@ -39,6 +37,72 @@
         "title": "Options",
         "description": "Configure the Govee integration. For Details see https://github.com/LaggAt/hacs-govee/blob/master/README.md"
       }
+    }
+  },
+  "entity": {
+    "select": {
+      "scene": {
+        "name": "Scene"
+      },
+      "diy_scene": {
+        "name": "DIY Scene"
+      }
+    }
+  },
+  "services": {
+    "set_segment_color": {
+      "name": "Set Segment Color",
+      "description": "Set color for specific segments of a Govee RGBIC light strip.",
+      "fields": {
+        "segments": {
+          "name": "Segments",
+          "description": "List of segment indices (0-based)."
+        },
+        "rgb_color": {
+          "name": "RGB Color",
+          "description": "RGB color as [r, g, b] with values 0-255."
+        }
+      }
+    },
+    "set_segment_brightness": {
+      "name": "Set Segment Brightness",
+      "description": "Set brightness for specific segments of a Govee RGBIC light strip.",
+      "fields": {
+        "segments": {
+          "name": "Segments",
+          "description": "List of segment indices (0-based)."
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "Brightness percentage (0-100)."
+        }
+      }
+    },
+    "set_music_mode": {
+      "name": "Set Music Mode",
+      "description": "Activate music reactive mode on a Govee light.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "Music mode name."
+        },
+        "sensitivity": {
+          "name": "Sensitivity",
+          "description": "Microphone sensitivity (0-100)."
+        },
+        "auto_color": {
+          "name": "Auto Color",
+          "description": "Enable automatic color changes."
+        },
+        "rgb_color": {
+          "name": "Fixed Color",
+          "description": "Fixed color when auto_color is disabled."
+        }
+      }
+    },
+    "refresh_scenes": {
+      "name": "Refresh Scenes",
+      "description": "Refresh the scene list from Govee cloud."
     }
   }
 }

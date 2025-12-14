@@ -4,19 +4,22 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from govee_api_laggat import Govee, GoveeNoLearningStorage, GoveeError
+import voluptuous as vol
 
 from homeassistant import config_entries, core, exceptions
-import homeassistant.helpers.config_validation as cv
 from homeassistant.const import CONF_API_KEY, CONF_DELAY
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
-import voluptuous as vol
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .api import GoveeApiClient, GoveeApiError, GoveeAuthError
 from .const import (
+    CONFIG_ENTRY_VERSION,
     CONF_DISABLE_ATTRIBUTE_UPDATES,
     CONF_OFFLINE_IS_OFF,
     CONF_USE_ASSUMED_STATE,
+    DEFAULT_POLL_INTERVAL,
     DOMAIN,
 )
 
@@ -31,30 +34,16 @@ async def validate_api_key(
     Return info that you want to store in the config entry.
     """
     api_key = user_input[CONF_API_KEY]
-    async with Govee(api_key, learning_storage=GoveeNoLearningStorage()) as hub:
-        _, error = await hub.get_devices()
-        if error:
-            raise CannotConnect(error)
+    session = async_get_clientsession(hass)
 
-    # Return info that you want to store in the config entry.
-    return user_input
+    async with GoveeApiClient(api_key, session=session) as client:
+        try:
+            await client.test_connection()
+        except GoveeAuthError as err:
+            raise CannotConnect("Invalid API key") from err
+        except GoveeApiError as err:
+            raise CannotConnect(str(err)) from err
 
-
-async def validate_disabled_attribute_updates(
-    hass: core.HomeAssistant, user_input: dict[str, Any]
-) -> dict[str, Any]:
-    """Validate format of the ignore_device_attributes parameter string.
-
-    Return info that you want to store in the config entry.
-    """
-    disable_str = user_input[CONF_DISABLE_ATTRIBUTE_UPDATES]
-    if disable_str:
-        # we have something to check, connect without API key
-        async with Govee("", learning_storage=GoveeNoLearningStorage()) as hub:
-            # this will throw an GoveeError if something fails
-            hub.ignore_device_attributes(disable_str)
-
-    # Return info that you want to store in the config entry.
     return user_input
 
 
@@ -62,7 +51,7 @@ async def validate_disabled_attribute_updates(
 class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Govee."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
     async def async_step_user(
@@ -70,6 +59,7 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
+
         if user_input is not None:
             try:
                 user_input = await validate_api_key(self.hass, user_input)
@@ -77,9 +67,6 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             except CannotConnect as conn_ex:
                 _LOGGER.exception("Cannot connect: %s", conn_ex)
                 errors[CONF_API_KEY] = "cannot_connect"
-            except GoveeError as govee_ex:
-                _LOGGER.exception("Govee library error: %s", govee_ex)
-                errors["base"] = "govee_error"
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception: %s", ex)
                 errors["base"] = "unknown"
@@ -92,7 +79,7 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_API_KEY): cv.string,
-                    vol.Optional(CONF_DELAY, default=30): cv.positive_int,
+                    vol.Optional(CONF_DELAY, default=DEFAULT_POLL_INTERVAL): cv.positive_int,
                 }
             ),
             errors=errors,
@@ -126,14 +113,15 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage the options."""
-        # get the current value for API key for comparison and default value
+        # Get the current value for API key for comparison and default value
         old_api_key = self.config_entry.options.get(
             CONF_API_KEY, self.config_entry.data.get(CONF_API_KEY, "")
         )
 
         errors: dict[str, str] = {}
+
         if user_input is not None:
-            # check if API Key changed and is valid
+            # Check if API Key changed and is valid
             try:
                 api_key = user_input[CONF_API_KEY]
                 if old_api_key != api_key:
@@ -142,44 +130,18 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
             except CannotConnect as conn_ex:
                 _LOGGER.exception("Cannot connect: %s", conn_ex)
                 errors[CONF_API_KEY] = "cannot_connect"
-            except GoveeError as govee_ex:
-                _LOGGER.exception("Govee library error: %s", govee_ex)
-                errors["base"] = "govee_error"
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception: %s", ex)
                 errors["base"] = "unknown"
 
-            # check validate_disabled_attribute_updates
-            try:
-                user_input = await validate_disabled_attribute_updates(
-                    self.hass, user_input
-                )
-
-                # apply settings to the running instance
-                if DOMAIN in self.hass.data and "hub" in self.hass.data[DOMAIN]:
-                    hub = self.hass.data[DOMAIN]["hub"]
-                    if hub:
-                        disable_str = user_input[CONF_DISABLE_ATTRIBUTE_UPDATES]
-                        hub.ignore_device_attributes(disable_str)
-            except GoveeError as govee_ex:
-                _LOGGER.exception(
-                    "Wrong input format for validate_disabled_attribute_updates: %s",
-                    govee_ex,
-                )
-                errors[
-                    CONF_DISABLE_ATTRIBUTE_UPDATES
-                ] = "disabled_attribute_updates_wrong"
-
             if not errors:
-                # update options flow values
+                # Update options flow values
                 self.options.update(user_input)
                 return await self._update_options()
-                # for later - extend with options you don't want in config but option flow
-                # return await self.async_step_options_2()
 
         options_schema = vol.Schema(
             {
-                # to config flow
+                # Config options
                 vol.Required(
                     CONF_API_KEY,
                     default=old_api_key,
@@ -187,10 +149,11 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_DELAY,
                     default=self.config_entry.options.get(
-                        CONF_DELAY, self.config_entry.data.get(CONF_DELAY, 30)
+                        CONF_DELAY,
+                        self.config_entry.data.get(CONF_DELAY, DEFAULT_POLL_INTERVAL),
                     ),
                 ): cv.positive_int,
-                # to options flow
+                # Behavior options
                 vol.Required(
                     CONF_USE_ASSUMED_STATE,
                     default=self.config_entry.options.get(CONF_USE_ASSUMED_STATE, True),
@@ -199,7 +162,6 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_OFFLINE_IS_OFF,
                     default=self.config_entry.options.get(CONF_OFFLINE_IS_OFF, False),
                 ): cv.boolean,
-                # TODO: validator doesn't work, change to list?
                 vol.Optional(
                     CONF_DISABLE_ATTRIBUTE_UPDATES,
                     default=self.config_entry.options.get(
