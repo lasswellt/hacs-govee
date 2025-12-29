@@ -6,7 +6,7 @@
 
 Control your Govee lights, LED strips, and smart plugs through Home Assistant using the official Govee API v2.0.
 
-**Current Version:** 2025.12.4
+**Current Version:** 2025.12.5
 
 ## Features
 

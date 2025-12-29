@@ -117,7 +117,12 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                 raw_state = await self.client.get_device_state(
                     device_id, device.sku
                 )
-                state = GoveeDeviceState.from_api(device_id, raw_state)
+                # Preserve optimistic state (like scenes) that API doesn't report
+                if self.data and device_id in self.data:
+                    state = self.data[device_id]
+                    state.update_from_api(raw_state)
+                else:
+                    state = GoveeDeviceState.from_api(device_id, raw_state)
                 states[device_id] = state
 
             except GoveeAuthError as err:
