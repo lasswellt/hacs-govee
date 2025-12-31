@@ -47,10 +47,16 @@ class GoveeException(HomeAssistantError):
             translation_key: Key for exception message in strings.json
             translation_placeholders: Dynamic values for message substitution
         """
-        super().__init__()
-        if translation_key:
-            self.translation_key = translation_key
-        self.translation_placeholders = translation_placeholders or {}
+        # Get the effective translation_key (provided or class default)
+        effective_key = translation_key if translation_key is not None else type(self).translation_key
+        effective_placeholders = translation_placeholders or {}
+
+        # Pass to HomeAssistantError for proper translation support
+        super().__init__(
+            translation_domain=type(self).translation_domain,
+            translation_key=effective_key,
+            translation_placeholders=effective_placeholders,
+        )
 
 
 class GoveeAuthenticationError(GoveeException):
