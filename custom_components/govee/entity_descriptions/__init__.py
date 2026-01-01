@@ -1,5 +1,3 @@
-"""Entity descriptions for Govee integration."""
-
 from __future__ import annotations
 
 from .button import BUTTON_DESCRIPTIONS

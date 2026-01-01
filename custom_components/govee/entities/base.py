@@ -22,12 +22,10 @@ class GoveeEntity(CoordinatorEntity[GoveeDataUpdateCoordinator]):
         coordinator: GoveeDataUpdateCoordinator,
         device: GoveeDevice,
     ) -> None:
-        """Initialize the entity."""
         super().__init__(coordinator)
         self._device = device
         self._device_id = device.device_id
 
-        # Set up device info for device registry
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device.device_id)},
             name=device.device_name,
@@ -38,19 +36,17 @@ class GoveeEntity(CoordinatorEntity[GoveeDataUpdateCoordinator]):
 
     @property
     def device_state(self) -> GoveeDeviceState | None:
-        """Get current device state from coordinator."""
         return self.coordinator.get_state(self._device_id)
 
     @property
     def _is_group_device(self) -> bool:
-        """Check if this is a group device (experimental support)."""
         from ..const import UNSUPPORTED_DEVICE_SKUS
 
         return self._device.sku in UNSUPPORTED_DEVICE_SKUS
 
     @property
     def available(self) -> bool:
-        """Return if entity is available (group devices always available for control)."""
+        """Group devices always available for control."""
         if not super().available:
             return False
 
@@ -65,7 +61,6 @@ class GoveeEntity(CoordinatorEntity[GoveeDataUpdateCoordinator]):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return extra state attributes."""
         attrs = {
             "device_id": self._device_id,
             "model": self._device.sku,

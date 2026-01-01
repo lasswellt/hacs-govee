@@ -1,5 +1,3 @@
-"""Govee switch platform for smart plugs, sockets, and feature toggles."""
-
 from __future__ import annotations
 
 import logging
@@ -20,18 +18,15 @@ async def async_setup_entry(
     entry: GoveeConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Govee switches from a config entry."""
     coordinator = entry.runtime_data.coordinator
     devices = entry.runtime_data.devices
 
     entities: list[SwitchEntity] = []
 
     for device in devices.values():
-        # Create switch entities for socket/plug devices
         if device.device_type == DEVICE_TYPE_SOCKET:
             entities.append(GoveeSwitchEntity(coordinator, device))
 
-        # Create nightlight switch for light devices that support it
         if device.device_type == DEVICE_TYPE_LIGHT and device.supports_nightlight:
             entities.append(GoveeNightLightSwitch(coordinator, device))
 

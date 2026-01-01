@@ -37,26 +37,17 @@ class GoveeRefreshScenesButton(GoveeEntity, ButtonEntity):
         device: GoveeDevice,
         description: GoveeButtonEntityDescription,
     ) -> None:
-        """Initialize refresh scenes button.
-
-        Args:
-            coordinator: The data update coordinator
-            device: The Govee device
-            description: Entity description
-        """
         super().__init__(coordinator, device)
         self.entity_description = description
         self._attr_unique_id = f"{device.device_id}_{description.key}"
 
     async def async_press(self) -> None:
-        """Handle button press - refresh scenes."""
         _LOGGER.debug(
             "Refreshing scenes for device %s (%s)",
             self._device.device_name,
             self._device.device_id,
         )
         try:
-            # Trigger scene refresh through coordinator
             await self.coordinator.async_refresh_device_scenes(self._device.device_id)
         except Exception as err:
             _LOGGER.error(
@@ -82,26 +73,17 @@ class GoveeIdentifyButton(GoveeEntity, ButtonEntity):
         device: GoveeDevice,
         description: GoveeButtonEntityDescription,
     ) -> None:
-        """Initialize identify button.
-
-        Args:
-            coordinator: The data update coordinator
-            device: The Govee device
-            description: Entity description
-        """
         super().__init__(coordinator, device)
         self.entity_description = description
         self._attr_unique_id = f"{device.device_id}_{description.key}"
 
     async def async_press(self) -> None:
-        """Handle button press - identify device."""
         _LOGGER.debug(
             "Identifying device %s (%s)",
             self._device.device_name,
             self._device.device_id,
         )
         try:
-            # Flash the device on/off briefly
             await self.coordinator.async_identify_device(self._device.device_id)
         except Exception as err:
             _LOGGER.error(

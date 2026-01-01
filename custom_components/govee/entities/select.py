@@ -18,13 +18,7 @@ class GoveeSceneSelect(GoveeEntity, SelectEntity):
     """Select entity for Govee scenes.
 
     Provides a dropdown selector for activating dynamic scenes or DIY scenes
-    on compatible Govee devices. Scene options are fetched from the API when
-    the entity is added to Home Assistant.
-
-    Attributes:
-        _scene_type: Type of scenes ("dynamic" or "diy")
-        _instance: Capability instance name
-        _options_map: Mapping of scene names to SceneOption objects
+    on compatible Govee devices.
     """
 
     def __init__(
@@ -34,32 +28,21 @@ class GoveeSceneSelect(GoveeEntity, SelectEntity):
         scene_type: str,
         instance: str,
     ) -> None:
-        """Initialize the scene select entity.
-
-        Args:
-            coordinator: Data update coordinator
-            device: Govee device
-            scene_type: Type of scene selector ('dynamic' or 'diy')
-            instance: API instance identifier (INSTANCE_LIGHT_SCENE or INSTANCE_DIY_SCENE)
-        """
         super().__init__(coordinator, device)
         
         self._scene_type = scene_type
         self._instance = instance
         self._attr_unique_id = f"{device.device_id}_{scene_type}_scene"
-        
-        # Set entity description based on scene type
+
         from ..entity_descriptions import SELECT_DESCRIPTIONS
-        
+
         self.entity_description = SELECT_DESCRIPTIONS[scene_type]
 
     async def async_added_to_hass(self) -> None:
-        """Load scene options when entity is added."""
         await super().async_added_to_hass()
         await self._async_refresh_options()
 
     async def _async_refresh_options(self) -> None:
-        """Fetch scene options from API."""
         try:
             if self._scene_type == "diy":
                 scenes = await self.coordinator.async_get_diy_scenes(self._device_id)
@@ -88,7 +71,6 @@ class GoveeSceneSelect(GoveeEntity, SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        """Return the current selected scene."""
         state = self.device_state
         if state is None or not state.current_scene:
             return None
@@ -108,11 +90,6 @@ class GoveeSceneSelect(GoveeEntity, SelectEntity):
         return None
 
     async def async_select_option(self, option: str) -> None:
-        """Select a scene.
-
-        Args:
-            option: Scene name to activate
-        """
         if option not in self._options_map:
             _LOGGER.warning(
                 "Unknown scene '%s' for %s",
@@ -147,9 +124,6 @@ class GoveeSceneSelect(GoveeEntity, SelectEntity):
             )
 
     async def async_refresh_scenes(self) -> None:
-        """Refresh scene list from API.
-
-        This method is called by the govee.refresh_scenes service.
-        """
+        """Called by the govee.refresh_scenes service."""
         await self._async_refresh_options()
         self.async_write_ha_state()

@@ -31,18 +31,10 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         client: GoveeApiClient,
         update_interval: timedelta,
     ) -> None:
-        """Initialize the coordinator.
-
-        Args:
-            hass: Home Assistant instance
-            config_entry: Config entry for this integration
-            client: Govee API client instance
-            update_interval: How often to poll for state updates
-        """
         self.client = client
-        self.devices: dict[str, GoveeDevice] = {}  # device_id -> GoveeDevice
-        self._scene_cache: dict[str, list[SceneOption]] = {}  # device_id -> scenes
-        self._diy_scene_cache: dict[str, list[SceneOption]] = {}  # device_id -> DIY scenes
+        self.devices: dict[str, GoveeDevice] = {}
+        self._scene_cache: dict[str, list[SceneOption]] = {}
+        self._diy_scene_cache: dict[str, list[SceneOption]] = {}
 
         super().__init__(
             hass,
@@ -59,11 +51,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         - Control commands work (on/off, brightness, color, scenes)
         - State queries fail (API limitation)
         - Integration uses optimistic state tracking
-
-        This creates a persistent warning to inform users about these limitations.
-
-        Args:
-            device: The group device that triggered this issue
         """
         ir.async_create_issue(
             self.hass,
@@ -82,17 +69,12 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
     def _check_rate_limits(self) -> None:
         """Check rate limits and create/clear warnings as needed.
 
-        Monitors API rate limits and creates non-persistent warnings when
-        approaching limits:
         - Per-minute: Warning at < 20 remaining (of 100)
         - Per-day: Warning at < 2000 remaining (of 10,000)
-
-        Warnings automatically clear when limits recover.
         """
         minute_issue_id = f"rate_limit_minute_{self.config_entry.entry_id}"
         day_issue_id = f"rate_limit_day_{self.config_entry.entry_id}"
 
-        # Per-minute limit warning (< 20 remaining)
         if self.rate_limit_remaining_minute < 20:
             ir.async_create_issue(
                 self.hass,
@@ -107,10 +89,8 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                 },
             )
         else:
-            # Clear issue if limit is no longer approached
             ir.async_delete_issue(self.hass, DOMAIN, minute_issue_id)
 
-        # Per-day limit warning (< 2000 remaining)
         if self.rate_limit_remaining < 2000:
             ir.async_create_issue(
                 self.hass,
@@ -125,17 +105,10 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                 },
             )
         else:
-            # Clear issue if limit is no longer approached
             ir.async_delete_issue(self.hass, DOMAIN, day_issue_id)
 
     async def _async_setup(self) -> None:
-        """Set up the coordinator - fetch devices on first load.
-
-        Device Discovery Process:
-        1. Fetch all devices from Govee cloud API
-        2. Filter out unsupported group devices (unless explicitly enabled)
-        3. Store discovered devices in self.devices dictionary
-        4. Log discovery statistics
+        """Fetch devices on first load.
 
         Group Device Handling:
         - Govee Home app groups (SameModeGroup, BaseGroup, DreamViewScenic)
@@ -143,10 +116,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         - If CONF_ENABLE_GROUP_DEVICES is True, groups are included with
           experimental support (control works, state queries fail)
         - Group devices use optimistic state tracking
-
-        Raises:
-            ConfigEntryAuthFailed: If API key is invalid (401 error)
-            UpdateFailed: If device discovery fails for other reasons
         """
         _LOGGER.debug("Setting up Govee coordinator - fetching devices")
         skipped_count = 0
@@ -155,8 +124,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
             for raw_device in raw_devices:
                 device = GoveeDevice.from_api(raw_device)
 
-                # Skip unsupported device types (Govee Home app groups) unless enabled
-                # Group devices have limited API support: control works but state queries fail
                 if device.sku in UNSUPPORTED_DEVICE_SKUS:
                     if not self.config_entry.options.get(CONF_ENABLE_GROUP_DEVICES, False):
                         _LOGGER.debug(
@@ -185,7 +152,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                     device.device_type,
                 )
 
-            # Count experimental group devices that were included
             group_device_count = sum(
                 1 for device in self.devices.values()
                 if device.sku in UNSUPPORTED_DEVICE_SKUS
@@ -198,8 +164,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                     skipped_count,
                     group_device_count,
                 )
-                # Create informational issue for group device limitations
-                # Find first group device for issue creation
                 for device in self.devices.values():
                     if device.sku in UNSUPPORTED_DEVICE_SKUS:
                         self._create_group_device_issue(device)
@@ -219,34 +183,13 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
     async def _async_update_data(self) -> dict[str, GoveeDeviceState]:
         """Fetch state for all devices.
 
-        State Update Process:
-        1. Iterate through all discovered devices
-        2. Query each device's state from Govee API
-        3. Preserve optimistic state (e.g., selected scenes) that API doesn't report
-        4. Handle errors gracefully with fallback to previous state
-
-        Rate Limiting:
-        - Enforced by GoveeApiClient rate limiter
-        - Per-minute limit: 100 requests
-        - Per-day limit: 10,000 requests
-        - Rate limit errors result in keeping previous state
+        Preserves optimistic state (e.g., selected scenes) that API doesn't report.
 
         Group Device Behavior:
         - Group devices cannot be queried for state (API limitation)
         - State queries fail with expected errors (logged at info level)
         - Group devices use optimistic state tracking instead
         - Marked as available even with online=False
-
-        Error Handling:
-        - Auth errors (401): Triggers re-authentication flow via ConfigEntryAuthFailed
-        - Rate limits (429): Logs warning, keeps previous state
-        - Other API errors: Logs warning/error, keeps previous state when available
-
-        Returns:
-            Dictionary mapping device_id to GoveeDeviceState
-
-        Raises:
-            ConfigEntryAuthFailed: If API key is invalid, triggers reauth flow
         """
         _LOGGER.debug("Updating Govee device states")
         states: dict[str, GoveeDeviceState] = {}
@@ -254,10 +197,8 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         async def fetch_device_state(
             device_id: str, device: GoveeDevice
         ) -> tuple[str, GoveeDeviceState | Exception]:
-            """Fetch state for a single device, returning result or exception."""
             try:
                 raw_state = await self.client.get_device_state(device_id, device.sku)
-                # Preserve optimistic state (like scenes) that API doesn't report
                 if self.data and device_id in self.data:
                     state = self.data[device_id]
                     state.update_from_api(raw_state)
@@ -285,7 +226,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
             device = self.devices[device_id]
 
             if isinstance(result, GoveeAuthError):
-                # Auth error: trigger re-authentication flow
                 raise ConfigEntryAuthFailed("Invalid API key") from result
 
             elif isinstance(result, GoveeRateLimitError):
@@ -316,49 +256,40 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                         device_id,
                         result,
                     )
-                # Keep previous state if available
                 if self.data and device_id in self.data:
                     states[device_id] = self.data[device_id]
                 else:
-                    # For group devices, initialize with structure suitable for optimistic updates
                     if is_group_device:
                         states[device_id] = GoveeDeviceState(
                             device_id=device_id,
-                            online=False,  # Can't query state
-                            power_state=None,  # Unknown until first command or restoration
+                            online=False,
+                            power_state=None,
                         )
                     else:
-                        # Regular offline device
                         states[device_id] = GoveeDeviceState(
                             device_id=device_id, online=False
                         )
 
             elif isinstance(result, Exception):
-                # Unexpected error
                 _LOGGER.error(
                     "Unexpected error updating %s: %s",
                     device_id,
                     result,
                 )
-                # Keep previous state if available
                 if self.data and device_id in self.data:
                     states[device_id] = self.data[device_id]
 
             else:
-                # Success: result is GoveeDeviceState
                 states[device_id] = result
 
-        # Check rate limits and create/clear warnings as needed
         self._check_rate_limits()
 
         return states
 
     def get_device(self, device_id: str) -> GoveeDevice | None:
-        """Get device by ID."""
         return self.devices.get(device_id)
 
     def get_state(self, device_id: str) -> GoveeDeviceState | None:
-        """Get current state for a device."""
         if self.data:
             return self.data.get(device_id)
         return None
@@ -372,26 +303,11 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
     ) -> None:
         """Send a control command and apply optimistic update.
 
-        Control Flow:
-        1. Validate device exists
-        2. Send control command to Govee API
-        3. Apply optimistic state update immediately (don't wait for API confirmation)
-        4. Notify entities of state change via async_set_updated_data()
-
         Optimistic Updates:
         - State is updated immediately before API confirmation
         - Provides responsive UI (no wait for cloud round-trip)
         - Next polling cycle will sync actual state from API
         - Critical for group devices where state queries fail
-
-        Args:
-            device_id: Device identifier
-            capability_type: Type of capability (e.g., "devices.capabilities.on_off")
-            instance: Capability instance (e.g., "powerSwitch")
-            value: Value to set (type depends on capability)
-
-        Raises:
-            GoveeApiError: If control command fails
         """
         device = self.devices.get(device_id)
         if not device:
@@ -407,7 +323,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                 value,
             )
 
-            # Apply optimistic state update
             if self.data and device_id in self.data:
                 self.data[device_id].apply_optimistic_update(instance, value)
                 self.async_set_updated_data(self.data)
@@ -443,21 +358,9 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         segment_index: int,
         rgb: tuple[int, int, int],
     ) -> None:
-        """Set color for a specific segment on an RGBIC device.
-
-        Args:
-            device_id: Device identifier
-            sku: Device SKU/model
-            segment_index: Zero-based segment index
-            rgb: RGB color tuple (0-255 per channel)
-
-        Raises:
-            GoveeApiError: If segment control command fails
-        """
         try:
             await self.client.set_segment_color(device_id, sku, segment_index, rgb)
 
-            # Apply optimistic state update
             if self.data and device_id in self.data:
                 self.data[device_id].apply_segment_update(segment_index, rgb)
                 self.async_set_updated_data(self.data)
@@ -478,23 +381,11 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         segment_index: int,
         brightness: int,
     ) -> None:
-        """Set brightness for a specific segment on an RGBIC device.
-
-        Args:
-            device_id: Device identifier
-            sku: Device SKU/model
-            segment_index: Zero-based segment index
-            brightness: Brightness level (0-100)
-
-        Raises:
-            GoveeApiError: If segment control command fails
-        """
         try:
             await self.client.set_segment_brightness(
                 device_id, sku, segment_index, brightness
             )
 
-            # Apply optimistic state update
             if self.data and device_id in self.data:
                 self.data[device_id].apply_segment_brightness_update(
                     segment_index, brightness
@@ -518,7 +409,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         scene_type: str,
         refresh: bool,
     ) -> list[SceneOption]:
-        """Fetch scenes with caching."""
         if not refresh and device_id in cache:
             return cache[device_id]
 
@@ -546,7 +436,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
     async def async_get_dynamic_scenes(
         self, device_id: str, refresh: bool = False
     ) -> list[SceneOption]:
-        """Get dynamic scenes for a device (cached)."""
         return await self._async_get_scenes_cached(
             device_id,
             self._scene_cache,
@@ -558,7 +447,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
     async def async_get_diy_scenes(
         self, device_id: str, refresh: bool = False
     ) -> list[SceneOption]:
-        """Get DIY scenes for a device (cached)."""
         return await self._async_get_scenes_cached(
             device_id,
             self._diy_scene_cache,
@@ -569,44 +457,26 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
 
     @property
     def rate_limit_remaining(self) -> int:
-        """Get remaining daily rate limit."""
         return self.client.rate_limiter.remaining_day
 
     @property
     def rate_limit_remaining_minute(self) -> int:
-        """Get remaining per-minute rate limit."""
         return self.client.rate_limiter.remaining_minute
 
-    @property
-    def rate_limit_remaining_day(self) -> int:
-        """Get remaining daily rate limit."""
-        return self.client.rate_limiter.remaining_day
-
     async def async_refresh_device_scenes(self, device_id: str) -> None:
-        """Refresh scene lists for a device.
-
-        Clears cached scenes and fetches fresh lists from the API.
-        Used by the refresh scenes button.
-        """
-        # Clear caches for this device
+        """Refresh scene lists for a device (used by refresh scenes button)."""
         self._scene_cache.pop(device_id, None)
         self._diy_scene_cache.pop(device_id, None)
 
-        # Fetch fresh scenes
         await self.async_get_dynamic_scenes(device_id)
         await self.async_get_diy_scenes(device_id)
 
         _LOGGER.debug("Refreshed scenes for device %s", device_id)
 
     async def async_identify_device(self, device_id: str) -> None:
-        """Identify a device by flashing it briefly.
-
-        Turns the device off and back on to help users identify
-        which physical device corresponds to this entity.
-        """
+        """Identify a device by flashing it off and back on."""
         from .api.const import CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH
 
-        # Quick flash: off then on
         await self.async_control_device(
             device_id,
             CAPABILITY_ON_OFF,
@@ -623,12 +493,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         _LOGGER.debug("Identified device %s", device_id)
 
     async def async_set_power_state(self, device_id: str, power_on: bool) -> None:
-        """Set power state for a device.
-
-        Args:
-            device_id: Device MAC address / identifier
-            power_on: True to turn on, False to turn off
-        """
         from .api.const import CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH
 
         await self.async_control_device(

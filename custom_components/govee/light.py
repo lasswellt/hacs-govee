@@ -1,5 +1,3 @@
-"""Govee light platform."""
-
 from __future__ import annotations
 
 import logging
@@ -16,7 +14,6 @@ from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
-# Maximum segment count before logging a warning
 MAX_SEGMENTS_WARNING = 20
 
 
@@ -25,20 +22,6 @@ async def async_setup_entry(
     entry: GoveeConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Govee lights from a config entry.
-
-    Platform Setup:
-    1. Retrieve coordinator and devices from runtime data
-    2. Create light entities for devices that support lighting
-    3. Create segment entities for RGBIC devices with segment control
-    4. Register Govee-specific services (segment control, music mode)
-
-    Entity Creation:
-    - Light entities created for devices with DEVICE_TYPE_LIGHT
-    - Also created for any device with on/off capability (smart plugs with lights)
-    - Segment entities created for RGBIC devices (e.g., H6199, H6160)
-    - Each entity gets full capability detection and color mode setup
-    """
     coordinator = entry.runtime_data.coordinator
     devices = entry.runtime_data.devices
 
@@ -46,12 +29,9 @@ async def async_setup_entry(
     segment_count_total = 0
 
     for device in devices.values():
-        # Only create light entities for light devices
-        # Some smart plugs also have light control capabilities
         if device.device_type == DEVICE_TYPE_LIGHT or device.supports_on_off:
             entities.append(GoveeLightEntity(coordinator, device, entry))
 
-            # Create segment entities for RGBIC devices
             if device.supports_segments:
                 segment_count = device.get_segment_count()
 

@@ -28,35 +28,25 @@ class GoveeSwitchEntity(GoveeEntity, SwitchEntity):
         coordinator: GoveeDataUpdateCoordinator,
         device: GoveeDevice,
     ) -> None:
-        """Initialize the switch entity.
-
-        Args:
-            coordinator: Data update coordinator
-            device: Govee device
-        """
         super().__init__(coordinator, device)
-        
+
         self._attr_unique_id = f"{device.device_id}_switch"
-        
-        # Set entity description for outlet/plug device
+
         from ..entity_descriptions import SWITCH_DESCRIPTIONS
-        
+
         self.entity_description = SWITCH_DESCRIPTIONS["outlet"]
 
     @property
     def is_on(self) -> bool | None:
-        """Return true if switch is on."""
         state = self.device_state
         if state is None:
             return None
         return state.power_state
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
         await self.coordinator.async_set_power_state(self._device.device_id, True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
         await self.coordinator.async_set_power_state(self._device.device_id, False)
 
 
@@ -75,36 +65,26 @@ class GoveeNightLightSwitch(GoveeEntity, SwitchEntity):
         coordinator: GoveeDataUpdateCoordinator,
         device: GoveeDevice,
     ) -> None:
-        """Initialize the nightlight switch entity.
-
-        Args:
-            coordinator: Data update coordinator
-            device: Govee device with nightlight support
-        """
         super().__init__(coordinator, device)
-        
+
         self._attr_unique_id = f"{device.device_id}_nightlight"
-        
-        # Set entity description for nightlight switch
+
         from ..entity_descriptions import SWITCH_DESCRIPTIONS
-        
+
         self.entity_description = SWITCH_DESCRIPTIONS["nightlight"]
 
     @property
     def name(self) -> str:
-        """Return the name of the entity."""
         return f"{self._device.device_name} Night Light"
 
     @property
     def is_on(self) -> bool | None:
-        """Return true if nightlight is on."""
         state = self.device_state
         if state is None:
             return None
         return state.nightlight_on
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the nightlight on."""
         _LOGGER.debug("Turning on nightlight for %s", self._device.device_name)
         try:
             await self.coordinator.async_control_device(
@@ -121,7 +101,6 @@ class GoveeNightLightSwitch(GoveeEntity, SwitchEntity):
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the nightlight off."""
         _LOGGER.debug("Turning off nightlight for %s", self._device.device_name)
         try:
             await self.coordinator.async_control_device(

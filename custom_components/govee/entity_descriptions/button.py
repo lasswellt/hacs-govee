@@ -1,10 +1,3 @@
-"""Button entity descriptions for Govee integration.
-
-Defines entity descriptions for action buttons:
-- Refresh scenes: Reload scene lists from API
-- Identify: Flash device for identification
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,8 +9,6 @@ from homeassistant.const import EntityCategory
 @dataclass(frozen=True, kw_only=True)
 class GoveeButtonEntityDescription(ButtonEntityDescription):
     """Describes a Govee button entity."""
-
-    # No additional fields needed for now, but allows future extension
 
 
 BUTTON_DESCRIPTIONS: dict[str, GoveeButtonEntityDescription] = {

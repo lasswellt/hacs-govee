@@ -59,7 +59,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         device: GoveeDevice,
         entry: GoveeConfigEntry,
     ) -> None:
-        """Initialize the light entity."""
         super().__init__(coordinator, device)
 
         self._entry = entry
@@ -131,7 +130,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
                 self.async_write_ha_state()
 
     def _determine_color_modes(self) -> set[ColorMode]:
-        """Determine supported color modes from device capabilities."""
         modes: set[ColorMode] = set()
 
         if self._device.supports_color:
@@ -139,7 +137,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         if self._device.supports_color_temp:
             modes.add(ColorMode.COLOR_TEMP)
 
-        # If no color modes, check for brightness-only or on/off
         if not modes:
             if self._device.supports_brightness:
                 modes.add(ColorMode.BRIGHTNESS)
@@ -149,7 +146,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         return modes
 
     def _determine_features(self) -> LightEntityFeature:
-        """Determine supported features from device capabilities."""
         features = LightEntityFeature(0)
 
         if self._device.supports_scenes:
@@ -158,7 +154,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         return features
 
     def _build_effect_list(self) -> None:
-        """Build effect list from device scene capabilities."""
         scene_options = self._device.get_scene_options()
 
         effects: list[str] = []
@@ -174,19 +169,15 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
                 "Device %s has %d effects: %s",
                 self._device.device_name,
                 len(effects),
-                effects[:5],  # Log first 5
+                effects[:5],
             )
-
-    # === State Properties ===
 
     @property
     def is_on(self) -> bool | None:
-        """Return true if light is on."""
         state = self.device_state
         if state is None:
             return None
 
-        # Handle offline_is_off option
         if not state.online:
             if self._entry.options.get(CONF_OFFLINE_IS_OFF, False):
                 return False
@@ -196,7 +187,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
 
     @property
     def brightness(self) -> int | None:
-        """Return the brightness (0-255)."""
         state = self.device_state
         if state is None or state.brightness is None:
             return None
@@ -205,7 +195,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
-        """Return the RGB color."""
         state = self.device_state
         if state is None:
             return None
@@ -213,7 +202,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
 
     @property
     def color_temp_kelvin(self) -> int | None:
-        """Return the color temperature in Kelvin."""
         state = self.device_state
         if state is None:
             return None
@@ -221,7 +209,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
 
     @property
     def color_mode(self) -> ColorMode | None:
-        """Return the current color mode."""
         state = self.device_state
         if state is None:
             return None
@@ -230,7 +217,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         if supported is None:
             return ColorMode.ONOFF
 
-        # Determine current mode based on state
         if (
             state.color_temp_kelvin is not None
             and ColorMode.COLOR_TEMP in supported
@@ -247,7 +233,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
 
     @property
     def effect(self) -> str | None:
-        """Return the current effect."""
         state = self.device_state
         if state is None:
             return None
@@ -262,35 +247,26 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         result: bool = self._entry.options.get(CONF_USE_ASSUMED_STATE, True)
         return result
 
-    # === Control Methods ===
-
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the light on."""
         _LOGGER.debug(
             "async_turn_on for %s, kwargs: %s",
             self._device.device_name,
             kwargs,
         )
 
-        # Handle effect (scene) first - it's exclusive
         if ATTR_EFFECT in kwargs:
             await self._async_set_effect(kwargs[ATTR_EFFECT])
             return
 
-        # Handle color attributes
         if ATTR_RGB_COLOR in kwargs:
-            rgb = kwargs[ATTR_RGB_COLOR]
-            await self._async_set_color_rgb(rgb)
+            await self._async_set_color_rgb(kwargs[ATTR_RGB_COLOR])
 
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
-            temp = kwargs[ATTR_COLOR_TEMP_KELVIN]
-            await self._async_set_color_temp(temp)
+            await self._async_set_color_temp(kwargs[ATTR_COLOR_TEMP_KELVIN])
 
         if ATTR_BRIGHTNESS in kwargs:
-            brightness = kwargs[ATTR_BRIGHTNESS]
-            await self._async_set_brightness(brightness)
+            await self._async_set_brightness(kwargs[ATTR_BRIGHTNESS])
 
-        # If no specific attribute, just turn on
         if not any(
             attr in kwargs
             for attr in [
@@ -303,14 +279,12 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
             await self._async_turn_on_off(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the light off."""
         _LOGGER.debug("async_turn_off for %s", self._device.device_name)
         await self._async_turn_on_off(False)
 
     async def _async_control(
         self, capability: str, instance: str, value: Any, operation: str
     ) -> None:
-        """Send control command with error handling."""
         try:
             await self.coordinator.async_control_device(
                 self._device_id, capability, instance, value
@@ -321,7 +295,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
             )
 
     async def _async_turn_on_off(self, on: bool) -> None:
-        """Turn the light on or off."""
         await self._async_control(
             CAPABILITY_ON_OFF,
             INSTANCE_POWER_SWITCH,
@@ -330,7 +303,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         )
 
     async def _async_set_brightness(self, brightness: int) -> None:
-        """Set brightness (HA range 0-255)."""
         api_brightness = round(brightness * API_BRIGHTNESS_MAX / HA_BRIGHTNESS_MAX)
         min_val, max_val = self._device.get_brightness_range()
         api_brightness = max(min_val, min(max_val, api_brightness))
@@ -339,7 +311,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         )
 
     async def _async_set_color_rgb(self, rgb: tuple[int, int, int]) -> None:
-        """Set RGB color."""
         r, g, b = rgb
         color_int = (r << 16) + (g << 8) + b
         await self._async_control(
@@ -347,7 +318,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         )
 
     async def _async_set_color_temp(self, temp_kelvin: int) -> None:
-        """Set color temperature in Kelvin."""
         min_kelvin = self._attr_min_color_temp_kelvin or 2000
         max_kelvin = self._attr_max_color_temp_kelvin or 9000
         temp_kelvin = max(min_kelvin, min(max_kelvin, temp_kelvin))
@@ -359,7 +329,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         )
 
     async def _async_set_effect(self, effect_name: str) -> None:
-        """Set an effect (scene)."""
         if effect_name not in self._effect_map:
             _LOGGER.warning(
                 "Unknown effect '%s' for %s", effect_name, self._device.device_name
@@ -374,12 +343,9 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
             f"set effect '{effect_name}'",
         )
 
-    # === Segment Control (for services) ===
-
     async def async_set_segment_color(
         self, segments: list[int], rgb: tuple[int, int, int]
     ) -> None:
-        """Set color for specific segments (called by service)."""
         if not self._device.supports_segments:
             _LOGGER.warning(
                 "Device %s does not support segment control", self._device.device_name
@@ -395,7 +361,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
     async def async_set_segment_brightness(
         self, segments: list[int], brightness: int
     ) -> None:
-        """Set brightness for specific segments (called by service)."""
         if not self._device.supports_segments:
             _LOGGER.warning(
                 "Device %s does not support segment control", self._device.device_name
@@ -417,7 +382,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         auto_color: bool = True,
         rgb: tuple[int, int, int] | None = None,
     ) -> None:
-        """Activate music reactive mode (called by service)."""
         if not self._device.supports_music_mode:
             _LOGGER.warning(
                 "Device %s does not support music mode", self._device.device_name

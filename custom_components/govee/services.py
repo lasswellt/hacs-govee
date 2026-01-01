@@ -1,4 +1,3 @@
-"""Service registration for Govee integration."""
 from __future__ import annotations
 
 import logging
@@ -13,7 +12,6 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Service names
 SERVICE_SET_SEGMENT_COLOR = "set_segment_color"
 SERVICE_SET_SEGMENT_BRIGHTNESS = "set_segment_brightness"
 SERVICE_SET_MUSIC_MODE = "set_music_mode"
@@ -21,13 +19,10 @@ SERVICE_REFRESH_SCENES = "refresh_scenes"
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
-    """Set up Govee services."""
     _LOGGER.debug("Setting up Govee services")
 
-    # Register light platform services
     platform = entity_platform.async_get_current_platform()
 
-    # Set segment color service
     platform.async_register_entity_service(
         SERVICE_SET_SEGMENT_COLOR,
         {
@@ -40,7 +35,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "async_set_segment_color",
     )
 
-    # Set segment brightness service
     platform.async_register_entity_service(
         SERVICE_SET_SEGMENT_BRIGHTNESS,
         {
@@ -52,7 +46,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "async_set_segment_brightness",
     )
 
-    # Set music mode service
     platform.async_register_entity_service(
         SERVICE_SET_MUSIC_MODE,
         {
@@ -71,12 +64,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
 
 async def async_setup_select_services(hass: HomeAssistant) -> None:
-    """Set up Govee select platform services."""
     _LOGGER.debug("Setting up Govee select services")
 
     platform = entity_platform.async_get_current_platform()
 
-    # Refresh scenes service
     platform.async_register_entity_service(
         SERVICE_REFRESH_SCENES,
         {},

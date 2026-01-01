@@ -1,5 +1,3 @@
-"""Diagnostics support for Govee integration."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -16,23 +14,6 @@ TO_REDACT = {CONF_API_KEY}
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: GoveeConfigEntry
 ) -> dict[str, Any]:
-    """Return diagnostics for a config entry.
-
-    This provides comprehensive diagnostic information for troubleshooting
-    the Govee integration, including:
-    - Config entry metadata (with sensitive data redacted)
-    - Device inventory with capability summary
-    - Coordinator health status
-    - Rate limit information
-    - Scene cache statistics
-
-    Args:
-        hass: Home Assistant instance
-        entry: Config entry for this integration
-
-    Returns:
-        Dictionary containing diagnostic data with sensitive information redacted
-    """
     coordinator = entry.runtime_data.coordinator
 
     return {

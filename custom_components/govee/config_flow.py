@@ -32,10 +32,6 @@ _LOGGER = logging.getLogger(__name__)
 async def validate_api_key(
     hass: core.HomeAssistant, user_input: dict[str, Any]
 ) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-
-    Return info that you want to store in the config entry.
-    """
     api_key = user_input[CONF_API_KEY]
     session = async_get_clientsession(hass)
 
@@ -52,7 +48,6 @@ async def validate_api_key(
 
 @config_entries.HANDLERS.register(DOMAIN)
 class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Govee."""
 
     VERSION = CONFIG_ENTRY_VERSION
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
@@ -62,7 +57,6 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial step."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -93,7 +87,6 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
-        """Handle re-authentication when API key becomes invalid."""
         self._reauth_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
@@ -102,7 +95,6 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Confirm re-authentication with new API key."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -117,7 +109,6 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
             if not errors:
-                # Update config entry with new API key
                 if self._reauth_entry is None:
                     return self.async_abort(reason="unknown")
                 self.hass.config_entries.async_update_entry(
@@ -142,30 +133,23 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> GoveeOptionsFlowHandler:
-        """Get the options flow."""
         return GoveeOptionsFlowHandler(config_entry)
 
 
 class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options."""
-
     VERSION = 1
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
         self.options = dict(config_entry.options)
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the options."""
         return await self.async_step_user()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the options."""
-        # Get the current value for API key for comparison and default value
         old_api_key = self.config_entry.options.get(
             CONF_API_KEY, self.config_entry.data.get(CONF_API_KEY, "")
         )
@@ -173,7 +157,6 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Check if API Key changed and is valid
             try:
                 api_key = user_input[CONF_API_KEY]
                 if old_api_key != api_key:
@@ -187,13 +170,11 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
                 errors["base"] = "unknown"
 
             if not errors:
-                # Update options flow values
                 self.options.update(user_input)
                 return await self._update_options()
 
         options_schema = vol.Schema(
             {
-                # Config options
                 vol.Required(
                     CONF_API_KEY,
                     default=old_api_key,
@@ -205,7 +186,6 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
                         self.config_entry.data.get(CONF_DELAY, DEFAULT_POLL_INTERVAL),
                     ),
                 ): cv.positive_int,
-                # Behavior options
                 vol.Required(
                     CONF_USE_ASSUMED_STATE,
                     default=self.config_entry.options.get(CONF_USE_ASSUMED_STATE, True),
@@ -234,9 +214,8 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def _update_options(self) -> ConfigFlowResult:
-        """Update config entry options."""
         return self.async_create_entry(title=DOMAIN, data=self.options)
 
 
 class CannotConnect(exceptions.HomeAssistantError):
-    """Error to indicate we cannot connect."""
+    pass
