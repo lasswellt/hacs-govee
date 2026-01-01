@@ -1,0 +1,186 @@
+{
+  "title": "Govee",
+  "config": {
+    "abort": {
+      "already_configured": "Ya configurado. Solo es posible una configuración.",
+      "reauth_successful": "Reautenticación exitosa"
+    },
+    "error": {
+      "cannot_connect": "No se puede conectar. ¿Es correcta la clave API y funciona la conexión a internet?",
+      "unknown": "Error desconocido."
+    },
+    "step": {
+      "user": {
+        "data": {
+          "api_key": "Clave API",
+          "delay": "Intervalo de sondeo"
+        },
+        "description": "Obtén tu clave API de la aplicación Govee Home. Para más detalles, consulta https://github.com/LaggAt/hacs-govee/blob/master/README.md"
+      },
+      "reauth_confirm": {
+        "data": {
+          "api_key": "Clave API"
+        },
+        "title": "Reautenticar Govee",
+        "description": "Tu clave API ya no es válida. Por favor, introduce una nueva clave API."
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "cannot_connect": "No se puede conectar. ¿Es correcta la clave API y funciona la conexión a internet?",
+      "unknown": "Error desconocido.",
+      "disabled_attribute_updates_wrong": "Formato incorrecto, consulta el README anterior."
+    },
+    "step": {
+      "user": {
+        "data": {
+          "api_key": "Clave API (requiere reinicio)",
+          "delay": "Intervalo de sondeo (requiere reinicio)",
+          "use_assumed_state": "Usar 'estado asumido' (dos botones). Por defecto: Verdadero",
+          "offline_is_off": "Cuando un LED está fuera de línea, mostrarlo como apagado. Por defecto: Falso",
+          "enable_group_devices": "Habilitar dispositivos de grupo (Control funciona, estado no disponible). Por defecto: Falso",
+          "disable_attribute_updates": "DESHABILITAR actualizaciones de estado. Espacio para deshabilitar. ¡Lee el README anterior!"
+        },
+        "title": "Opciones",
+        "description": "Configura la integración Govee. Para más detalles, consulta https://github.com/LaggAt/hacs-govee/blob/master/README.md"
+      }
+    }
+  },
+  "entity": {
+    "light": {
+      "segment": {
+        "name": "Segmento {segment_number}"
+      }
+    },
+    "select": {
+      "scene": {
+        "name": "Escena"
+      },
+      "diy_scene": {
+        "name": "Escena DIY"
+      }
+    },
+    "switch": {
+      "nightlight": {
+        "name": "Luz nocturna"
+      },
+      "outlet": {
+        "name": "Enchufe"
+      }
+    },
+    "sensor": {
+      "rate_limit_remaining_minute": {
+        "name": "Límite API (Minuto)"
+      },
+      "rate_limit_remaining_day": {
+        "name": "Límite API (Día)"
+      }
+    },
+    "button": {
+      "refresh_scenes": {
+        "name": "Actualizar escenas"
+      },
+      "identify": {
+        "name": "Identificar"
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_error": {
+      "message": "Ocurrió un error inesperado con la integración Govee."
+    },
+    "authentication_failed": {
+      "message": "Autenticación fallida. Por favor, verifica tu clave API de Govee."
+    },
+    "connection_failed": {
+      "message": "No se pudo conectar a la API de Govee. Por favor, verifica tu conexión a internet."
+    },
+    "rate_limit_exceeded": {
+      "message": "Límite de la API de Govee excedido. Reintentar en {retry_after} segundos."
+    },
+    "device_error": {
+      "message": "Error con el dispositivo {device_name} ({device_id})."
+    },
+    "capability_not_supported": {
+      "message": "El dispositivo {device_id} no soporta la capacidad: {capability}."
+    },
+    "scene_error": {
+      "message": "La operación de escena falló para la escena: {scene_name}."
+    }
+  },
+  "issues": {
+    "group_device_limitation": {
+      "title": "El dispositivo de grupo tiene soporte API limitado",
+      "description": "El dispositivo **{device_name}** es un dispositivo de grupo de la aplicación Govee Home (SameModeGroup, BaseGroup o DreamViewScenic).\n\nEstos dispositivos de grupo tienen **soporte experimental** en esta integración:\n- Los comandos de control funcionan (encendido/apagado, brillo, color, escenas)\n- Las consultas de estado fallan - el dispositivo usará seguimiento de estado optimista\n- El dispositivo se muestra como disponible incluso cuando no se puede consultar el estado\n\nEsta es una limitación de la API en la nube de Govee. Los dispositivos de grupo creados en la aplicación Govee Home no soportan consultas de estado a través de la API.\n\n**Recomendación:** Si necesitas retroalimentación de estado precisa, controla los dispositivos individuales en lugar de grupos."
+    },
+    "rate_limit_minute_warning": {
+      "title": "Acercándose al límite de tasa por minuto",
+      "description": "Tu integración Govee se está acercando al límite de tasa de la API.\n\n**Estado actual:** {remaining} solicitudes restantes este minuto (límite: 100/minuto)\n\n**Qué significa esto:**\n- Si se excede el límite, las solicitudes de API se retrasarán automáticamente\n- Puedes experimentar tiempos de respuesta más lentos\n\n**Acciones recomendadas:**\n- Aumenta el intervalo de sondeo en las opciones de integración\n- Reduce el número de dispositivos sondeados\n- Evita operaciones de actualización manual excesivas\n\nEsta advertencia desaparecerá automáticamente cuando se restablezca el límite de tasa."
+    },
+    "rate_limit_day_warning": {
+      "title": "Acercándose al límite de tasa diario",
+      "description": "Tu integración Govee se está acercando al límite de tasa diario de la API.\n\n**Estado actual:** {remaining} solicitudes restantes hoy (límite: 10,000/día)\n\n**Qué significa esto:**\n- Si se excede el límite diario, las solicitudes de API pueden fallar\n- La integración puede dejar de actualizar los estados de los dispositivos\n\n**Acciones recomendadas:**\n- **Aumenta inmediatamente** el intervalo de sondeo en las opciones de integración (recomendado: 60+ segundos)\n- Considera reducir el número de dispositivos\n- El límite diario se restablece a medianoche UTC\n\nEsta advertencia desaparecerá automáticamente cuando se restablezca el límite de tasa."
+    },
+    "auth_failed": {
+      "title": "Autenticación de Govee fallida",
+      "description": "La clave API de Govee ya no es válida.\n\n**Qué significa esto:**\n- La integración no puede comunicarse con los servidores de Govee\n- El control del dispositivo y las actualizaciones de estado no funcionarán\n\n**Cómo solucionarlo:**\n1. Ve a Configuración → Dispositivos y servicios → Govee\n2. Haz clic en 'Configurar' o 'Reconfigurar'\n3. Introduce una nueva clave API válida\n\n**Obtener una nueva clave API:**\n1. Abre la aplicación Govee Home\n2. Ve a Perfil → Configuración → Acerca de nosotros → Solicitar clave API"
+    }
+  },
+  "services": {
+    "set_segment_color": {
+      "name": "Establecer color de segmento",
+      "description": "Establece el color para segmentos específicos de una tira LED RGBIC de Govee.",
+      "fields": {
+        "segments": {
+          "name": "Segmentos",
+          "description": "Lista de índices de segmentos (basados en 0)."
+        },
+        "rgb_color": {
+          "name": "Color RGB",
+          "description": "Color RGB como [r, g, b] con valores 0-255."
+        }
+      }
+    },
+    "set_segment_brightness": {
+      "name": "Establecer brillo de segmento",
+      "description": "Establece el brillo para segmentos específicos de una tira LED RGBIC de Govee.",
+      "fields": {
+        "segments": {
+          "name": "Segmentos",
+          "description": "Lista de índices de segmentos (basados en 0)."
+        },
+        "brightness": {
+          "name": "Brillo",
+          "description": "Porcentaje de brillo (0-100)."
+        }
+      }
+    },
+    "set_music_mode": {
+      "name": "Establecer modo música",
+      "description": "Activa el modo reactivo a música en una luz Govee.",
+      "fields": {
+        "mode": {
+          "name": "Modo",
+          "description": "Nombre del modo de música."
+        },
+        "sensitivity": {
+          "name": "Sensibilidad",
+          "description": "Sensibilidad del micrófono (0-100)."
+        },
+        "auto_color": {
+          "name": "Color automático",
+          "description": "Habilita cambios de color automáticos."
+        },
+        "rgb_color": {
+          "name": "Color fijo",
+          "description": "Color fijo cuando el color automático está deshabilitado."
+        }
+      }
+    },
+    "refresh_scenes": {
+      "name": "Actualizar escenas",
+      "description": "Actualiza la lista de escenas desde la nube de Govee."
+    }
+  }
+}
