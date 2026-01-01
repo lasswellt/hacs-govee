@@ -551,7 +551,7 @@ This is by design and acceptable for cloud-polling integrations per Home Assista
 
 This integration follows Home Assistant 2025.12 best practices:
 - **100% Type Annotations**: Full mypy strict mode compliance
-- **Comprehensive Testing**: 300+ tests with 95%+ coverage
+- **Comprehensive Testing**: 526 tests with 99.78% coverage
 - **Async Architecture**: Fully asynchronous implementation
 - **Modern Python**: Uses Python 3.12+ features and type syntax
 
