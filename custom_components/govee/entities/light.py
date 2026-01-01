@@ -400,10 +400,7 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
             return
 
         scene_option = self._effect_map[effect_name]
-        scene_value = {
-            "value": scene_option.get("value"),
-            "name": effect_name,
-        }
+        scene_value = scene_option.get("value")
 
         try:
             await self.coordinator.async_control_device(

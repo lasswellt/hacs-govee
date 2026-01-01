@@ -1026,13 +1026,12 @@ class TestEffectControl:
 
         await entity.async_turn_on(effect="Sunset")
 
-        # Should set scene
-        expected_value = {"value": 1, "name": "Sunset"}
+        # Should set scene with raw value (not wrapped in dict)
         mock_coordinator.async_control_device.assert_called_once_with(
             mock_device_light_with_scenes.device_id,
             CAPABILITY_DYNAMIC_SCENE,
             INSTANCE_LIGHT_SCENE,
-            expected_value,
+            1,  # Raw scene value
         )
 
     @pytest.mark.asyncio
