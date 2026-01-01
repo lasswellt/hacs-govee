@@ -79,6 +79,25 @@ class TestGoveeRateLimitSensor:
 
         assert entity.native_value == 9500
 
+    def test_sensor_native_value_unknown_key(self, mock_coordinator):
+        """Test native_value returns None for unknown key (entities/sensor.py line 57)."""
+        from dataclasses import dataclass
+        from homeassistant.components.sensor import SensorEntityDescription
+
+        # Create a description with an unknown key
+        @dataclass(frozen=True, kw_only=True)
+        class UnknownSensorDescription(SensorEntityDescription):
+            """Sensor description for testing unknown key."""
+            key: str = "unknown_key"
+
+        unknown_description = UnknownSensorDescription(
+            key="unknown_key",
+            name="Unknown Sensor",
+        )
+        entity = GoveeRateLimitSensor(mock_coordinator, unknown_description)
+
+        assert entity.native_value is None
+
     @pytest.mark.asyncio
     async def test_async_added_to_hass(self, hass: HomeAssistant, mock_coordinator):
         """Test async_added_to_hass subscribes to coordinator."""

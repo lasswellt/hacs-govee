@@ -108,12 +108,17 @@ class TestGoveeEntity:
         mock_coordinator: MagicMock,
         mock_device_light,
     ):
-        """Test entity unavailable when coordinator unavailable."""
-        mock_coordinator.last_update_success = False
+        """Test entity unavailable when coordinator unavailable (lines 85-86)."""
+        from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
         entity = GoveeEntity(mock_coordinator, mock_device_light)
 
-        # Mock CoordinatorEntity.available
-        with patch.object(GoveeEntity, "available", new_callable=lambda: property(lambda self: False)):
+        # Mock parent class available to return False
+        with patch.object(
+            CoordinatorEntity,
+            "available",
+            new_callable=lambda: property(lambda self: False),
+        ):
             assert entity.available is False
 
     def test_available_regular_device_online(
@@ -122,12 +127,20 @@ class TestGoveeEntity:
         mock_device_light,
         mock_state_light_on,
     ):
-        """Test regular device available when online."""
+        """Test regular device available when online (lines 94-98)."""
+        from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
         mock_coordinator.get_state.return_value = mock_state_light_on
         entity = GoveeEntity(mock_coordinator, mock_device_light)
 
-        assert mock_state_light_on.online is True
-        # Note: Full availability test requires mocking parent class
+        # Mock parent class available to return True
+        with patch.object(
+            CoordinatorEntity,
+            "available",
+            new_callable=lambda: property(lambda self: True),
+        ):
+            assert mock_state_light_on.online is True
+            assert entity.available is True
 
     def test_available_regular_device_offline(
         self,
@@ -135,38 +148,64 @@ class TestGoveeEntity:
         mock_device_light,
         mock_state_offline,
     ):
-        """Test regular device unavailable when offline."""
+        """Test regular device unavailable when offline (lines 94-98)."""
+        from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
         mock_coordinator.get_state.return_value = mock_state_offline
         entity = GoveeEntity(mock_coordinator, mock_device_light)
 
-        assert mock_state_offline.online is False
+        # Mock parent class available to return True
+        with patch.object(
+            CoordinatorEntity,
+            "available",
+            new_callable=lambda: property(lambda self: True),
+        ):
+            assert mock_state_offline.online is False
+            assert entity.available is False
 
     def test_available_regular_device_no_state(
         self,
         mock_coordinator: MagicMock,
         mock_device_light,
     ):
-        """Test regular device unavailable when no state."""
+        """Test regular device unavailable when no state (lines 95-96)."""
+        from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
         mock_coordinator.get_state.return_value = None
         entity = GoveeEntity(mock_coordinator, mock_device_light)
 
-        state = entity.device_state
-        assert state is None
+        # Mock parent class available to return True
+        with patch.object(
+            CoordinatorEntity,
+            "available",
+            new_callable=lambda: property(lambda self: True),
+        ):
+            assert entity.device_state is None
+            assert entity.available is False
 
     def test_available_group_device_always_true(
         self,
         mock_coordinator: MagicMock,
         mock_device_group,
     ):
-        """Test group device always available even if offline."""
+        """Test group device always available even if offline (lines 90-91)."""
+        from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
         with patch(
             "custom_components.govee.const.UNSUPPORTED_DEVICE_SKUS",
             {mock_device_group.sku},
         ):
             entity = GoveeEntity(mock_coordinator, mock_device_group)
 
-            # Group devices should be available for control
-            assert entity._is_group_device is True
+            # Mock parent class available to return True
+            with patch.object(
+                CoordinatorEntity,
+                "available",
+                new_callable=lambda: property(lambda self: True),
+            ):
+                # Group devices should be available for control even without state
+                assert entity._is_group_device is True
+                assert entity.available is True
 
     def test_extra_state_attributes_basic(
         self,

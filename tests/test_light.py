@@ -105,6 +105,74 @@ class TestAsyncSetupEntry:
             # Should register services
             mock_setup_services.assert_called_once_with(hass)
 
+    @pytest.mark.asyncio
+    async def test_setup_entry_creates_segment_entities(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_coordinator,
+        mock_device_light_with_segments,
+    ):
+        """Test setup creates segment entities for RGBIC devices (lines 55-76)."""
+        from custom_components.govee.entities.segment import GoveeSegmentLight
+
+        mock_config_entry.runtime_data = MagicMock()
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+        mock_config_entry.runtime_data.devices = {
+            mock_device_light_with_segments.device_id: mock_device_light_with_segments,
+        }
+
+        async_add_entities = MagicMock()
+
+        with patch(
+            "custom_components.govee.services.async_setup_services",
+            new_callable=AsyncMock,
+        ):
+            await async_setup_entry(hass, mock_config_entry, async_add_entities)
+
+        # Should add main light entity + segment entities
+        async_add_entities.assert_called_once()
+        entities = async_add_entities.call_args[0][0]
+
+        # Main light + segments
+        main_lights = [e for e in entities if isinstance(e, GoveeLightEntity)]
+        segment_lights = [e for e in entities if isinstance(e, GoveeSegmentLight)]
+
+        assert len(main_lights) == 1
+        assert len(segment_lights) == mock_device_light_with_segments.get_segment_count()
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_logs_warning_for_many_segments(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_coordinator,
+        mock_device_light_with_segments,
+        caplog,
+    ):
+        """Test setup logs warning for devices with many segments (lines 57-64)."""
+        from custom_components.govee.light import MAX_SEGMENTS_WARNING
+
+        # Mock device to have more than MAX_SEGMENTS_WARNING segments
+        mock_device_light_with_segments.get_segment_count = MagicMock(
+            return_value=MAX_SEGMENTS_WARNING + 5
+        )
+
+        mock_config_entry.runtime_data = MagicMock()
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+        mock_config_entry.runtime_data.devices = {
+            mock_device_light_with_segments.device_id: mock_device_light_with_segments,
+        }
+
+        with patch(
+            "custom_components.govee.services.async_setup_services",
+            new_callable=AsyncMock,
+        ):
+            await async_setup_entry(hass, mock_config_entry, MagicMock())
+
+        # Should log warning about unusually high segment count
+        assert "unusually high" in caplog.text
+
 
 # ==============================================================================
 # Entity Initialization Tests
@@ -1292,3 +1360,313 @@ class TestMultipleAttributes:
         assert mock_coordinator.async_control_device.call_count == 1
         call_args = mock_coordinator.async_control_device.call_args
         assert call_args[0][1] == CAPABILITY_DYNAMIC_SCENE
+
+
+# ==============================================================================
+# Additional State Property Tests (Edge Cases)
+# ==============================================================================
+
+
+class TestStatePropertyEdgeCases:
+    """Test state property edge cases for coverage."""
+
+    def test_rgb_color_none_when_no_state(
+        self,
+        mock_coordinator,
+        mock_device_light,
+        mock_config_entry,
+    ):
+        """Test rgb_color returns None when no state (line 258)."""
+        mock_coordinator.get_state.return_value = None
+        entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
+
+        assert entity.rgb_color is None
+
+    def test_color_temp_kelvin_none_when_no_state(
+        self,
+        mock_coordinator,
+        mock_device_light,
+        mock_config_entry,
+    ):
+        """Test color_temp_kelvin returns None when no state (line 266)."""
+        mock_coordinator.get_state.return_value = None
+        entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
+
+        assert entity.color_temp_kelvin is None
+
+    def test_color_mode_none_when_no_state(
+        self,
+        mock_coordinator,
+        mock_device_light,
+        mock_config_entry,
+    ):
+        """Test color_mode returns None when no state (line 274)."""
+        mock_coordinator.get_state.return_value = None
+        entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
+
+        assert entity.color_mode is None
+
+    def test_color_mode_onoff_fallback(
+        self,
+        mock_coordinator,
+        mock_device_light,
+        mock_config_entry,
+    ):
+        """Test color_mode falls back to ONOFF (line 293)."""
+        state = GoveeDeviceState(
+            device_id=mock_device_light.device_id,
+            online=True,
+            power_state=True,
+            brightness=100,
+            color_rgb=None,
+            color_temp_kelvin=None,
+        )
+        mock_coordinator.get_state.return_value = state
+        entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
+
+        # Force supported_color_modes to only ONOFF
+        entity._attr_supported_color_modes = {ColorMode.ONOFF}
+
+        assert entity.color_mode == ColorMode.ONOFF
+
+    def test_color_mode_onoff_when_supported_none(
+        self,
+        mock_coordinator,
+        mock_device_light,
+        mock_config_entry,
+    ):
+        """Test color_mode returns ONOFF when supported_color_modes is None (line 278)."""
+        state = GoveeDeviceState(
+            device_id=mock_device_light.device_id,
+            online=True,
+            power_state=True,
+            brightness=100,
+        )
+        mock_coordinator.get_state.return_value = state
+        entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
+
+        # Force supported_color_modes to None
+        entity._attr_supported_color_modes = None
+
+        assert entity.color_mode == ColorMode.ONOFF
+
+    def test_color_mode_brightness_fallback(
+        self,
+        mock_coordinator,
+        mock_config_entry,
+        device_capability_brightness,
+        device_capability_on_off,
+    ):
+        """Test color_mode falls back to BRIGHTNESS (lines 291-292)."""
+        from custom_components.govee.models import GoveeDevice
+
+        device = GoveeDevice(
+            device_id="TEST_BRIGHT",
+            sku="H6000",
+            device_name="Brightness Only",
+            device_type="devices.types.light",
+            capabilities=[device_capability_on_off, device_capability_brightness],
+        )
+
+        state = GoveeDeviceState(
+            device_id=device.device_id,
+            online=True,
+            power_state=True,
+            brightness=50,
+            color_rgb=None,
+            color_temp_kelvin=None,
+        )
+        mock_coordinator.get_state.return_value = state
+        entity = GoveeLightEntity(mock_coordinator, device, mock_config_entry)
+
+        assert entity.color_mode == ColorMode.BRIGHTNESS
+
+    def test_effect_none_when_no_state(
+        self,
+        mock_coordinator,
+        mock_device_light_with_scenes,
+        mock_config_entry,
+    ):
+        """Test effect returns None when no state (line 300)."""
+        mock_coordinator.get_state.return_value = None
+        entity = GoveeLightEntity(
+            mock_coordinator, mock_device_light_with_scenes, mock_config_entry
+        )
+
+        assert entity.effect is None
+
+
+# ==============================================================================
+# Additional State Restoration Tests (Edge Cases)
+# ==============================================================================
+
+
+class TestStateRestorationEdgeCases:
+    """Test state restoration edge cases for coverage."""
+
+    @pytest.mark.asyncio
+    async def test_async_added_to_hass_state_exists(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator,
+        mock_device_group,
+        mock_config_entry,
+    ):
+        """Test state not restored when coordinator already has state (line 133)."""
+        # Set up existing state with power_state
+        existing_state = GoveeDeviceState(
+            device_id=mock_device_group.device_id,
+            online=False,
+            power_state=True,  # Already has power_state
+            brightness=50,
+        )
+        mock_coordinator.get_state.return_value = existing_state
+
+        # Create mock last state
+        last_state = State("light.test", STATE_OFF)
+
+        with patch(
+            "custom_components.govee.const.UNSUPPORTED_DEVICE_SKUS",
+            {mock_device_group.sku},
+        ):
+            entity = GoveeLightEntity(mock_coordinator, mock_device_group, mock_config_entry)
+            entity.hass = hass
+
+            with patch.object(entity, "async_get_last_state", return_value=last_state):
+                await entity.async_added_to_hass()
+
+                # Should NOT restore state because existing state has power_state
+                assert existing_state.power_state is True  # Not changed to False
+
+    @pytest.mark.asyncio
+    async def test_async_added_to_hass_restores_rgb_color(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator,
+        mock_device_group,
+        mock_config_entry,
+    ):
+        """Test state restoration restores RGB color (line 161)."""
+        # Set up state without power_state
+        state = GoveeDeviceState(
+            device_id=mock_device_group.device_id,
+            online=False,
+            power_state=None,
+            brightness=None,
+        )
+        mock_coordinator.get_state.return_value = state
+
+        # Create mock last state with RGB color
+        last_state = State(
+            "light.test",
+            STATE_ON,
+            attributes={ATTR_RGB_COLOR: (255, 128, 64)},
+        )
+
+        with patch(
+            "custom_components.govee.const.UNSUPPORTED_DEVICE_SKUS",
+            {mock_device_group.sku},
+        ):
+            entity = GoveeLightEntity(mock_coordinator, mock_device_group, mock_config_entry)
+            entity.hass = hass
+            entity.async_write_ha_state = MagicMock()
+
+            with patch.object(entity, "async_get_last_state", return_value=last_state):
+                await entity.async_added_to_hass()
+
+                # Should restore RGB color
+                assert state.color_rgb == (255, 128, 64)
+
+    @pytest.mark.asyncio
+    async def test_async_added_to_hass_restores_color_temp(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator,
+        mock_device_group,
+        mock_config_entry,
+    ):
+        """Test state restoration restores color temperature (line 165)."""
+        # Set up state without power_state
+        state = GoveeDeviceState(
+            device_id=mock_device_group.device_id,
+            online=False,
+            power_state=None,
+            brightness=None,
+        )
+        mock_coordinator.get_state.return_value = state
+
+        # Create mock last state with color temp
+        last_state = State(
+            "light.test",
+            STATE_ON,
+            attributes={ATTR_COLOR_TEMP_KELVIN: 4500},
+        )
+
+        with patch(
+            "custom_components.govee.const.UNSUPPORTED_DEVICE_SKUS",
+            {mock_device_group.sku},
+        ):
+            entity = GoveeLightEntity(mock_coordinator, mock_device_group, mock_config_entry)
+            entity.hass = hass
+            entity.async_write_ha_state = MagicMock()
+
+            with patch.object(entity, "async_get_last_state", return_value=last_state):
+                await entity.async_added_to_hass()
+
+                # Should restore color temperature
+                assert state.color_temp_kelvin == 4500
+
+
+# ==============================================================================
+# Additional Segment Control Tests (Error Cases)
+# ==============================================================================
+
+
+class TestSegmentControlErrors:
+    """Test segment control error handling for coverage."""
+
+    @pytest.mark.asyncio
+    async def test_async_set_segment_color_error(
+        self,
+        mock_coordinator,
+        mock_device_light_with_segments,
+        mock_config_entry,
+        caplog,
+    ):
+        """Test async_set_segment_color handles API errors (lines 503-504)."""
+        mock_coordinator.async_control_device = AsyncMock(
+            side_effect=Exception("API error")
+        )
+        entity = GoveeLightEntity(
+            mock_coordinator, mock_device_light_with_segments, mock_config_entry
+        )
+
+        await entity.async_set_segment_color(
+            segments=[0, 1],
+            rgb=(255, 0, 0),
+        )
+
+        # Should log error but not raise
+        assert "Failed to set segment color" in caplog.text
+        assert "API error" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_async_set_segment_brightness_unsupported(
+        self,
+        mock_coordinator,
+        mock_device_light,
+        mock_config_entry,
+        caplog,
+    ):
+        """Test async_set_segment_brightness on unsupported device (lines 520-524)."""
+        mock_coordinator.async_control_device = AsyncMock()
+        entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
+
+        await entity.async_set_segment_brightness(
+            segments=[0, 1],
+            brightness=80,
+        )
+
+        # Should log warning and not call coordinator
+        assert "does not support segment control" in caplog.text
+        mock_coordinator.async_control_device.assert_not_called()

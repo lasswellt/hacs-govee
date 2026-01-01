@@ -113,3 +113,12 @@ class TestBrightnessHelpers:
             result = brightness_from_api(api_value)
             # Allow for rounding differences
             assert abs(result - brightness) <= 3
+
+    def test_brightness_from_api_zero_range(self):
+        """Test brightness conversion from API with zero range (line 75)."""
+        # When range_size is 0 (e.g., (50, 50))
+        # If api_value > device_range[0], return 255
+        assert brightness_from_api(51, (50, 50)) == 255
+        # If api_value <= device_range[0], return 0
+        assert brightness_from_api(50, (50, 50)) == 0
+        assert brightness_from_api(49, (50, 50)) == 0

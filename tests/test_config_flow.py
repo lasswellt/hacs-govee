@@ -431,6 +431,123 @@ class TestGoveeOptionsFlowHandler:
 # ==============================================================================
 
 
+class TestReauthFlow:
+    """Test re-authentication flow."""
+
+    @pytest.mark.asyncio
+    async def test_reauth_flow_init(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test reauth flow initialization."""
+        mock_config_entry.add_to_hass(hass)
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_REAUTH,
+                "entry_id": mock_config_entry.entry_id,
+            },
+            data=mock_config_entry.data,
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reauth_confirm"
+
+    @pytest.mark.asyncio
+    async def test_reauth_flow_success(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test successful reauth flow."""
+        mock_config_entry.add_to_hass(hass)
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_REAUTH,
+                "entry_id": mock_config_entry.entry_id,
+            },
+            data=mock_config_entry.data,
+        )
+
+        # Mock validate_api_key to return the validated input and async_reload to be a no-op
+        with (
+            patch(
+                "custom_components.govee.config_flow.validate_api_key",
+                return_value={CONF_API_KEY: "new-valid-api-key"},
+            ),
+            patch.object(
+                hass.config_entries,
+                "async_reload",
+                return_value=None,
+            ),
+        ):
+            result2 = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {CONF_API_KEY: "new-valid-api-key"},
+            )
+
+        assert result2["type"] == FlowResultType.ABORT
+        assert result2["reason"] == "reauth_successful"
+
+    @pytest.mark.asyncio
+    async def test_reauth_flow_connection_error(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test reauth flow with connection error."""
+        from custom_components.govee.config_flow import CannotConnect
+
+        mock_config_entry.add_to_hass(hass)
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_REAUTH,
+                "entry_id": mock_config_entry.entry_id,
+            },
+            data=mock_config_entry.data,
+        )
+
+        with patch(
+            "custom_components.govee.config_flow.validate_api_key",
+            side_effect=CannotConnect("Connection failed"),
+        ):
+            result2 = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {CONF_API_KEY: "test-api-key"},
+            )
+
+        assert result2["type"] == FlowResultType.FORM
+        assert result2["errors"] == {CONF_API_KEY: "cannot_connect"}
+
+    @pytest.mark.asyncio
+    async def test_reauth_flow_unknown_error(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test reauth flow with unexpected error."""
+        mock_config_entry.add_to_hass(hass)
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_REAUTH,
+                "entry_id": mock_config_entry.entry_id,
+            },
+            data=mock_config_entry.data,
+        )
+
+        with patch(
+            "custom_components.govee.config_flow.validate_api_key",
+            side_effect=Exception("Unexpected error"),
+        ):
+            result2 = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {CONF_API_KEY: "test-api-key"},
+            )
+
+        assert result2["type"] == FlowResultType.FORM
+        assert result2["errors"] == {"base": "unknown"}
+
+
 class TestCannotConnectException:
     """Test CannotConnect exception."""
 

@@ -526,3 +526,421 @@ class TestGoveeDeviceState:
         assert state.power_state is None  # Default when not in capabilities
         assert state.brightness is None
         assert state.color_rgb is None
+
+    def test_from_api_nightlight_on(self):
+        """Test creating state from API with nightlight on."""
+        api_data = {
+            "capabilities": [
+                {"instance": "powerSwitch", "state": {"value": 1}},
+                {"instance": "nightlightToggle", "state": {"value": 1}},
+            ]
+        }
+
+        state = GoveeDeviceState.from_api("AA:BB:CC:DD:EE:FF:11:22", api_data)
+
+        assert state.power_state is True
+        assert state.nightlight_on is True
+
+    def test_from_api_nightlight_off(self):
+        """Test creating state from API with nightlight off."""
+        api_data = {
+            "capabilities": [
+                {"instance": "nightlightToggle", "state": {"value": 0}},
+            ]
+        }
+
+        state = GoveeDeviceState.from_api("AA:BB:CC:DD:EE:FF:11:22", api_data)
+
+        assert state.nightlight_on is False
+
+    def test_update_from_api_partial(self):
+        """Test updating state from partial API response."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            brightness=50,
+            color_rgb=(100, 100, 100),
+            color_temp_kelvin=4000,
+            nightlight_on=False,
+        )
+
+        # Update with just power and brightness
+        api_data = {
+            "capabilities": [
+                {"instance": "powerSwitch", "state": {"value": 0}},
+                {"instance": "brightness", "state": {"value": 75}},
+            ]
+        }
+
+        state.update_from_api(api_data)
+
+        # Updated fields
+        assert state.power_state is False
+        assert state.brightness == 75
+        # Preserved fields (not in API response)
+        assert state.color_rgb == (100, 100, 100)
+        assert state.color_temp_kelvin == 4000
+        assert state.nightlight_on is False
+
+    def test_update_from_api_with_color_rgb(self):
+        """Test updating state from API with RGB color."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            brightness=50,
+        )
+
+        api_data = {
+            "capabilities": [
+                {"instance": "colorRgb", "state": {"value": 16711680}},  # 0xFF0000 = (255, 0, 0)
+            ]
+        }
+
+        state.update_from_api(api_data)
+
+        assert state.color_rgb == (255, 0, 0)
+
+    def test_update_from_api_with_color_temp(self):
+        """Test updating state from API with color temperature."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        api_data = {
+            "capabilities": [
+                {"instance": "colorTemperatureK", "state": {"value": 5500}},
+            ]
+        }
+
+        state.update_from_api(api_data)
+
+        assert state.color_temp_kelvin == 5500
+
+    def test_update_from_api_with_nightlight(self):
+        """Test updating state from API with nightlight."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            nightlight_on=False,
+        )
+
+        api_data = {
+            "capabilities": [
+                {"instance": "nightlightToggle", "state": {"value": 1}},
+            ]
+        }
+
+        state.update_from_api(api_data)
+
+        assert state.nightlight_on is True
+
+    def test_update_from_api_offline(self):
+        """Test updating state when device goes offline."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            brightness=50,
+        )
+
+        api_data = {
+            "capabilities": [
+                {"instance": "online", "state": {"value": False}},
+            ]
+        }
+
+        state.update_from_api(api_data)
+
+        assert state.online is False
+        # Other state preserved
+        assert state.power_state is True
+        assert state.brightness == 50
+
+    def test_apply_optimistic_update_power_on(self):
+        """Test optimistic update for power on."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=False,
+        )
+
+        state.apply_optimistic_update("powerSwitch", 1)
+
+        assert state.power_state is True
+
+    def test_apply_optimistic_update_power_off(self):
+        """Test optimistic update for power off."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        state.apply_optimistic_update("powerSwitch", 0)
+
+        assert state.power_state is False
+
+    def test_apply_optimistic_update_brightness(self):
+        """Test optimistic update for brightness clears scene."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            brightness=50,
+            current_scene="5",
+            current_scene_name="Sunset",
+            scene_set_time=12345.0,
+        )
+
+        state.apply_optimistic_update("brightness", 75)
+
+        assert state.brightness == 75
+        # Scene should be cleared
+        assert state.current_scene is None
+        assert state.current_scene_name is None
+        assert state.scene_set_time is None
+
+    def test_apply_optimistic_update_color_rgb_int(self):
+        """Test optimistic update for RGB color (integer format) clears scene."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            current_scene="5",
+            current_scene_name="Sunset",
+            scene_set_time=12345.0,
+        )
+
+        # 16711935 = 0xFF00FF = (255, 0, 255)
+        state.apply_optimistic_update("colorRgb", 16711935)
+
+        assert state.color_rgb == (255, 0, 255)
+        # Scene should be cleared
+        assert state.current_scene is None
+        assert state.current_scene_name is None
+        assert state.scene_set_time is None
+
+    def test_apply_optimistic_update_color_temp(self):
+        """Test optimistic update for color temperature clears scene."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            current_scene="5",
+            current_scene_name="Sunset",
+            scene_set_time=12345.0,
+        )
+
+        state.apply_optimistic_update("colorTemperatureK", 5000)
+
+        assert state.color_temp_kelvin == 5000
+        # Scene should be cleared
+        assert state.current_scene is None
+        assert state.current_scene_name is None
+        assert state.scene_set_time is None
+
+    def test_apply_optimistic_update_scene_dict(self):
+        """Test optimistic update for scene with dict value."""
+        from unittest.mock import patch
+        import time
+
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        with patch.object(time, "time", return_value=12345.0):
+            state.apply_optimistic_update("lightScene", {"id": "10", "name": "Romantic"})
+
+        assert state.current_scene == "10"
+        assert state.current_scene_name == "Romantic"
+        assert state.scene_set_time == 12345.0
+
+    def test_apply_optimistic_update_scene_dict_paramid(self):
+        """Test optimistic update for scene with paramId in dict."""
+        from unittest.mock import patch
+        import time
+
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        with patch.object(time, "time", return_value=12345.0):
+            state.apply_optimistic_update("lightScene", {"paramId": "15"})
+
+        assert state.current_scene == "15"
+        assert state.current_scene_name is None
+
+    def test_apply_optimistic_update_scene_simple_value(self):
+        """Test optimistic update for scene with simple value."""
+        from unittest.mock import patch
+        import time
+
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        with patch.object(time, "time", return_value=12345.0):
+            state.apply_optimistic_update("lightScene", "5")
+
+        assert state.current_scene == "5"
+        assert state.current_scene_name is None
+        assert state.scene_set_time == 12345.0
+
+    def test_apply_optimistic_update_diy_scene(self):
+        """Test optimistic update for DIY scene."""
+        from unittest.mock import patch
+        import time
+
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        with patch.object(time, "time", return_value=12345.0):
+            state.apply_optimistic_update("diyScene", "123")
+
+        assert state.current_scene == "diy_123"
+        assert state.current_scene_name is None
+        assert state.scene_set_time == 12345.0
+
+    def test_apply_optimistic_update_nightlight_on(self):
+        """Test optimistic update for nightlight on."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            nightlight_on=False,
+        )
+
+        state.apply_optimistic_update("nightlightToggle", 1)
+
+        assert state.nightlight_on is True
+
+    def test_apply_optimistic_update_nightlight_off(self):
+        """Test optimistic update for nightlight off."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            nightlight_on=True,
+        )
+
+        state.apply_optimistic_update("nightlightToggle", 0)
+
+        assert state.nightlight_on is False
+
+    def test_apply_segment_update_first(self):
+        """Test applying first segment update."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        assert state.segment_colors is None
+
+        state.apply_segment_update(0, (255, 0, 0))
+
+        assert state.segment_colors is not None
+        assert state.segment_colors[0] == (255, 0, 0)
+
+    def test_apply_segment_update_multiple(self):
+        """Test applying multiple segment updates."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        state.apply_segment_update(0, (255, 0, 0))
+        state.apply_segment_update(1, (0, 255, 0))
+        state.apply_segment_update(2, (0, 0, 255))
+
+        assert state.segment_colors[0] == (255, 0, 0)
+        assert state.segment_colors[1] == (0, 255, 0)
+        assert state.segment_colors[2] == (0, 0, 255)
+
+    def test_apply_segment_update_overwrite(self):
+        """Test overwriting existing segment color."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            segment_colors={0: (255, 0, 0)},
+        )
+
+        state.apply_segment_update(0, (0, 255, 0))
+
+        assert state.segment_colors[0] == (0, 255, 0)
+
+    def test_apply_segment_brightness_update_first(self):
+        """Test applying first segment brightness update."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        assert state.segment_brightness is None
+
+        state.apply_segment_brightness_update(0, 50)
+
+        assert state.segment_brightness is not None
+        assert state.segment_brightness[0] == 50
+
+    def test_apply_segment_brightness_update_multiple(self):
+        """Test applying multiple segment brightness updates."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        state.apply_segment_brightness_update(0, 25)
+        state.apply_segment_brightness_update(1, 50)
+        state.apply_segment_brightness_update(2, 75)
+
+        assert state.segment_brightness[0] == 25
+        assert state.segment_brightness[1] == 50
+        assert state.segment_brightness[2] == 75
+
+    def test_clear_segment_states(self):
+        """Test clearing all segment states."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+            segment_colors={0: (255, 0, 0), 1: (0, 255, 0)},
+            segment_brightness={0: 50, 1: 75},
+        )
+
+        state.clear_segment_states()
+
+        assert state.segment_colors is None
+        assert state.segment_brightness is None
+
+    def test_clear_segment_states_already_none(self):
+        """Test clearing segment states when already None."""
+        state = GoveeDeviceState(
+            device_id="AA:BB:CC:DD:EE:FF:11:22",
+            online=True,
+            power_state=True,
+        )
+
+        # Should not raise
+        state.clear_segment_states()
+
+        assert state.segment_colors is None
+        assert state.segment_brightness is None

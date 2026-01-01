@@ -19,6 +19,88 @@ class TestAsyncSetupEntry:
     """Test async_setup_entry function."""
 
     @pytest.mark.asyncio
+    async def test_setup_entry_skips_non_light_devices(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_coordinator,
+        mock_device_switch,
+    ):
+        """Test setup skips non-light devices (select.py line 32)."""
+        mock_config_entry.runtime_data = MagicMock()
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+        mock_config_entry.runtime_data.devices = {
+            mock_device_switch.device_id: mock_device_switch
+        }
+
+        async_add_entities = MagicMock()
+
+        with patch(
+            "custom_components.govee.services.async_setup_select_services",
+            new_callable=AsyncMock,
+        ):
+            await async_setup_entry(hass, mock_config_entry, async_add_entities)
+
+        # Should add no entities (non-light device skipped)
+        async_add_entities.assert_called_once()
+        entities = async_add_entities.call_args[0][0]
+        assert len(entities) == 0
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_with_diy_scene_support(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_coordinator,
+        mock_device_light_with_scenes,
+    ):
+        """Test setup creates DIY scene select entity (select.py line 47)."""
+        from custom_components.govee.models.capability import DeviceCapability
+        from custom_components.govee.api.const import CAPABILITY_DYNAMIC_SCENE
+        from custom_components.govee.models import GoveeDevice
+
+        # Create device with DIY scene support (uses CAPABILITY_DYNAMIC_SCENE with INSTANCE_DIY_SCENE)
+        diy_scene_capability = DeviceCapability(
+            type=CAPABILITY_DYNAMIC_SCENE,
+            instance=INSTANCE_DIY_SCENE,
+            parameters={
+                "options": [{"name": "My DIY", "value": "diy1"}]
+            },
+        )
+        device_with_diy = GoveeDevice(
+            device_id=mock_device_light_with_scenes.device_id,
+            sku=mock_device_light_with_scenes.sku,
+            device_name=mock_device_light_with_scenes.device_name,
+            device_type=mock_device_light_with_scenes.device_type,
+            capabilities=list(mock_device_light_with_scenes.capabilities) + [diy_scene_capability],
+            firmware_version=mock_device_light_with_scenes.firmware_version,
+        )
+
+        mock_config_entry.runtime_data = MagicMock()
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+        mock_config_entry.runtime_data.devices = {
+            device_with_diy.device_id: device_with_diy
+        }
+
+        async_add_entities = MagicMock()
+
+        with patch(
+            "custom_components.govee.services.async_setup_select_services",
+            new_callable=AsyncMock,
+        ):
+            await async_setup_entry(hass, mock_config_entry, async_add_entities)
+
+        # Should add both dynamic and DIY scene select entities
+        async_add_entities.assert_called_once()
+        entities = async_add_entities.call_args[0][0]
+        assert len(entities) == 2  # Both dynamic and DIY
+
+        # One should be dynamic, one should be DIY
+        scene_types = [e._scene_type for e in entities]
+        assert "dynamic" in scene_types
+        assert "diy" in scene_types
+
+    @pytest.mark.asyncio
     async def test_setup_entry_with_scene_support(
         self,
         hass: HomeAssistant,

@@ -15,7 +15,7 @@ from custom_components.govee.api.exceptions import (
     GoveeRateLimitError,
 )
 from custom_components.govee.models import GoveeDevice, GoveeDeviceState, SceneOption
-from custom_components.govee.const import CONF_ENABLE_GROUP_DEVICES
+from custom_components.govee.const import CONF_ENABLE_GROUP_DEVICES, DOMAIN
 
 
 # ==============================================================================
@@ -1035,3 +1035,602 @@ class TestRateLimits:
         mock_api_client.rate_limiter.remaining_minute = 95
 
         assert coordinator.rate_limit_remaining_minute == 95
+
+    def test_rate_limit_remaining_day_returns_value(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test rate_limit_remaining_day returns daily remaining."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        mock_api_client.rate_limiter.remaining_day = 8500
+
+        assert coordinator.rate_limit_remaining_day == 8500
+
+
+class TestCheckRateLimits:
+    """Test rate limit checking and issue creation/clearing."""
+
+    async def test_check_rate_limits_clears_minute_issue_when_recovered(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test minute rate limit issue is cleared when limits recover."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        # Set limits above warning threshold
+        mock_api_client.rate_limiter.remaining_minute = 50
+        mock_api_client.rate_limiter.remaining_day = 5000
+
+        # This should clear any minute issue (not create one)
+        coordinator._check_rate_limits()
+
+        # Verify no minute warning was created
+        from homeassistant.helpers import issue_registry as ir
+        issue_registry = ir.async_get(hass)
+        minute_issue_id = f"rate_limit_minute_{mock_config_entry.entry_id}"
+        assert issue_registry.async_get_issue(DOMAIN, minute_issue_id) is None
+
+    async def test_check_rate_limits_clears_day_issue_when_recovered(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test daily rate limit issue is cleared when limits recover."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        # Set limits above warning threshold
+        mock_api_client.rate_limiter.remaining_minute = 50
+        mock_api_client.rate_limiter.remaining_day = 5000
+
+        # This should clear any day issue (not create one)
+        coordinator._check_rate_limits()
+
+        # Verify no day warning was created
+        from homeassistant.helpers import issue_registry as ir
+        issue_registry = ir.async_get(hass)
+        day_issue_id = f"rate_limit_day_{mock_config_entry.entry_id}"
+        assert issue_registry.async_get_issue(DOMAIN, day_issue_id) is None
+
+
+class TestSegmentControl:
+    """Test segment color and brightness control."""
+
+    async def test_async_set_segment_color_success(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test setting segment color successfully."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+        )
+        coordinator.data = {
+            device_id: GoveeDeviceState(device_id=device_id, online=True),
+        }
+
+        mock_api_client.set_segment_color = AsyncMock()
+
+        await coordinator.async_set_segment_color(
+            device_id, "H6199", 0, (255, 0, 0)
+        )
+
+        mock_api_client.set_segment_color.assert_called_once_with(
+            device_id, "H6199", 0, (255, 0, 0)
+        )
+        # Check optimistic update was applied
+        assert coordinator.data[device_id].segment_colors[0] == (255, 0, 0)
+
+    async def test_async_set_segment_color_api_error(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test setting segment color with API error."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+        )
+        coordinator.data = {
+            device_id: GoveeDeviceState(device_id=device_id, online=True),
+        }
+
+        mock_api_client.set_segment_color = AsyncMock(
+            side_effect=GoveeApiError("Segment control failed")
+        )
+
+        with pytest.raises(GoveeApiError):
+            await coordinator.async_set_segment_color(
+                device_id, "H6199", 0, (255, 0, 0)
+            )
+
+    async def test_async_set_segment_brightness_success(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test setting segment brightness successfully."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+        )
+        coordinator.data = {
+            device_id: GoveeDeviceState(device_id=device_id, online=True),
+        }
+
+        mock_api_client.set_segment_brightness = AsyncMock()
+
+        await coordinator.async_set_segment_brightness(
+            device_id, "H6199", 0, 75
+        )
+
+        mock_api_client.set_segment_brightness.assert_called_once_with(
+            device_id, "H6199", 0, 75
+        )
+        # Check optimistic update was applied
+        assert coordinator.data[device_id].segment_brightness[0] == 75
+
+    async def test_async_set_segment_brightness_api_error(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test setting segment brightness with API error."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+        )
+        coordinator.data = {
+            device_id: GoveeDeviceState(device_id=device_id, online=True),
+        }
+
+        mock_api_client.set_segment_brightness = AsyncMock(
+            side_effect=GoveeApiError("Segment control failed")
+        )
+
+        with pytest.raises(GoveeApiError):
+            await coordinator.async_set_segment_brightness(
+                device_id, "H6199", 0, 75
+            )
+
+
+class TestDiyScenes:
+    """Test DIY scene fetching and error handling."""
+
+    async def test_async_get_diy_scenes_handles_api_error(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test DIY scene fetch falls back to cache on API error."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+            device_name="Test Light",
+        )
+
+        # Pre-populate cache
+        cached_scenes = [SceneOption(name="My DIY", value="diy1")]
+        coordinator._diy_scene_cache[device_id] = cached_scenes
+
+        mock_api_client.get_diy_scenes = AsyncMock(
+            side_effect=GoveeApiError("DIY scenes failed")
+        )
+
+        result = await coordinator.async_get_diy_scenes(device_id)
+
+        # Should return cached scenes
+        assert result == cached_scenes
+
+
+class TestRefreshScenes:
+    """Test scene refresh functionality."""
+
+    async def test_async_refresh_device_scenes(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test refreshing scenes for a device."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+            device_name="Test Light",
+        )
+
+        # Pre-populate caches
+        coordinator._scene_cache[device_id] = [SceneOption(name="Old", value="old")]
+        coordinator._diy_scene_cache[device_id] = [SceneOption(name="Old DIY", value="olddiy")]
+
+        mock_api_client.get_dynamic_scenes = AsyncMock(return_value=[
+            {"name": "New Scene", "value": {"id": "new"}},
+        ])
+        mock_api_client.get_diy_scenes = AsyncMock(return_value=[
+            {"name": "New DIY", "value": {"id": "newdiy"}},
+        ])
+
+        await coordinator.async_refresh_device_scenes(device_id)
+
+        # Check caches were updated with new scenes
+        assert len(coordinator._scene_cache[device_id]) == 1
+        assert coordinator._scene_cache[device_id][0].name == "New Scene"
+        assert len(coordinator._diy_scene_cache[device_id]) == 1
+        assert coordinator._diy_scene_cache[device_id][0].name == "New DIY"
+
+
+class TestIdentifyDevice:
+    """Test device identification functionality."""
+
+    async def test_async_identify_device(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test device identification flashes the device."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+        )
+        coordinator.data = {
+            device_id: GoveeDeviceState(device_id=device_id, online=True, power_state=True),
+        }
+
+        mock_api_client.control_device = AsyncMock()
+
+        await coordinator.async_identify_device(device_id)
+
+        # Should have been called twice (off then on)
+        assert mock_api_client.control_device.call_count == 2
+
+
+class TestSetPowerState:
+    """Test power state control functionality."""
+
+    async def test_async_set_power_state_on(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test turning power on."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+        )
+        coordinator.data = {
+            device_id: GoveeDeviceState(device_id=device_id, online=True, power_state=False),
+        }
+
+        mock_api_client.control_device = AsyncMock()
+
+        await coordinator.async_set_power_state(device_id, True)
+
+        mock_api_client.control_device.assert_called_once()
+        # Check the value was 1 (on)
+        call_args = mock_api_client.control_device.call_args
+        assert call_args[0][4] == 1  # value parameter
+
+    async def test_async_set_power_state_off(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test turning power off."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+        )
+        coordinator.data = {
+            device_id: GoveeDeviceState(device_id=device_id, online=True, power_state=True),
+        }
+
+        mock_api_client.control_device = AsyncMock()
+
+        await coordinator.async_set_power_state(device_id, False)
+
+        mock_api_client.control_device.assert_called_once()
+        # Check the value was 0 (off)
+        call_args = mock_api_client.control_device.call_args
+        assert call_args[0][4] == 0  # value parameter
+
+
+# ==============================================================================
+# Additional Coverage Tests
+# ==============================================================================
+
+
+class TestRateLimitIssueCreation:
+    """Test rate limit issue creation when limits are low."""
+
+    async def test_check_rate_limits_creates_minute_issue_when_low(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test minute rate limit issue is created when limits are low (line 114)."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        # Set minute limit below warning threshold (< 20)
+        mock_api_client.rate_limiter.remaining_minute = 15
+        mock_api_client.rate_limiter.remaining_day = 5000
+
+        coordinator._check_rate_limits()
+
+        # Verify minute warning was created
+        from homeassistant.helpers import issue_registry as ir
+        issue_registry = ir.async_get(hass)
+        minute_issue_id = f"rate_limit_minute_{mock_config_entry.entry_id}"
+        issue = issue_registry.async_get_issue(DOMAIN, minute_issue_id)
+        assert issue is not None
+        assert issue.translation_key == "rate_limit_minute_warning"
+
+    async def test_check_rate_limits_creates_day_issue_when_low(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test daily rate limit issue is created when limits are low (line 132)."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        # Set day limit below warning threshold (< 2000)
+        mock_api_client.rate_limiter.remaining_minute = 50
+        mock_api_client.rate_limiter.remaining_day = 1500
+
+        coordinator._check_rate_limits()
+
+        # Verify day warning was created
+        from homeassistant.helpers import issue_registry as ir
+        issue_registry = ir.async_get(hass)
+        day_issue_id = f"rate_limit_day_{mock_config_entry.entry_id}"
+        issue = issue_registry.async_get_issue(DOMAIN, day_issue_id)
+        assert issue is not None
+        assert issue.translation_key == "rate_limit_day_warning"
+
+
+class TestStateUpdateErrorHandling:
+    """Test error handling during state updates."""
+
+    @pytest.mark.asyncio
+    async def test_async_update_data_handles_timeout(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+        mock_device_light,
+    ):
+        """Test update raises UpdateFailed on timeout (lines 303-305)."""
+        import asyncio
+
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        coordinator.devices = {mock_device_light.device_id: mock_device_light}
+
+        # Mock get_device_state to raise TimeoutError
+        mock_api_client.get_device_state = AsyncMock(
+            side_effect=asyncio.TimeoutError("timeout")
+        )
+
+        # Patch asyncio.wait_for to raise TimeoutError
+        with patch("custom_components.govee.coordinator.asyncio.wait_for") as mock_wait_for:
+            mock_wait_for.side_effect = asyncio.TimeoutError()
+
+            with pytest.raises(UpdateFailed, match="timeout"):
+                await coordinator._async_update_data()
+
+    @pytest.mark.asyncio
+    async def test_async_update_data_handles_unexpected_exception(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+        mock_device_light,
+        caplog,
+    ):
+        """Test update handles unexpected exceptions (lines 363-370)."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        coordinator.devices = {mock_device_light.device_id: mock_device_light}
+
+        # Set initial state
+        initial_state = GoveeDeviceState(
+            device_id=mock_device_light.device_id,
+            online=True,
+            power_state=True,
+        )
+        coordinator.data = {mock_device_light.device_id: initial_state}
+
+        # Mock get_device_state to raise an unexpected exception
+        mock_api_client.get_device_state = AsyncMock(
+            side_effect=ValueError("Unexpected error")
+        )
+
+        states = await coordinator._async_update_data()
+
+        # Should log error and keep previous state
+        assert "Unexpected error" in caplog.text
+        assert mock_device_light.device_id in states
+        assert states[mock_device_light.device_id] == initial_state
+
+
+class TestDiyScenesMissingDevice:
+    """Test DIY scenes with missing device."""
+
+    @pytest.mark.asyncio
+    async def test_async_get_diy_scenes_device_not_found(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test DIY scene fetch returns empty list for unknown device (line 589)."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        # No devices registered
+        coordinator.devices = {}
+
+        result = await coordinator.async_get_diy_scenes("unknown-device-id")
+
+        # Should return empty list for unknown device
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_async_get_diy_scenes_api_error_no_cache(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry,
+        mock_api_client,
+    ):
+        """Test DIY scene fetch returns empty list on API error without cache (lines 602-604)."""
+        coordinator = GoveeDataUpdateCoordinator(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            update_interval=timedelta(seconds=60),
+        )
+
+        device_id = "AA:BB:CC:DD:EE:FF:11:22"
+        coordinator.devices[device_id] = MagicMock(
+            device_id=device_id,
+            sku="H6199",
+            device_name="Test Light",
+        )
+
+        # No cache for this device
+        coordinator._diy_scene_cache = {}
+
+        mock_api_client.get_diy_scenes = AsyncMock(
+            side_effect=GoveeApiError("DIY scenes failed")
+        )
+
+        result = await coordinator.async_get_diy_scenes(device_id)
+
+        # Should return empty list when no cache exists
+        assert result == []
