@@ -15,6 +15,11 @@ ENDPOINT_DIY_SCENES = "device/diy-scenes"
 RATE_LIMIT_PER_MINUTE = 100
 RATE_LIMIT_PER_DAY = 10000
 
+# Time constants (seconds)
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_DAY = 86400
+MAX_RATE_LIMIT_WAIT = 3600  # 1 hour cap for daily limit waits
+
 # Rate Limit Headers
 HEADER_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining"
 HEADER_RATE_LIMIT_RESET = "X-RateLimit-Reset"

@@ -21,9 +21,12 @@ from .const import (
     HEADER_API_RATE_LIMIT_RESET,
     HEADER_RATE_LIMIT_REMAINING,
     HEADER_RATE_LIMIT_RESET,
+    MAX_RATE_LIMIT_WAIT,
     RATE_LIMIT_PER_DAY,
     RATE_LIMIT_PER_MINUTE,
     REQUEST_TIMEOUT,
+    SECONDS_PER_DAY,
+    SECONDS_PER_MINUTE,
 )
 from .exceptions import (
     GoveeApiError,
@@ -101,35 +104,31 @@ class RateLimiter:
         async with self._lock:
             now = time.time()
 
-            # Clean old timestamps
             self._minute_timestamps = [
-                t for t in self._minute_timestamps if now - t < 60
+                t for t in self._minute_timestamps if now - t < SECONDS_PER_MINUTE
             ]
             self._day_timestamps = [
-                t for t in self._day_timestamps if now - t < 86400
+                t for t in self._day_timestamps if now - t < SECONDS_PER_DAY
             ]
 
-            # Check per-minute limit
             if len(self._minute_timestamps) >= self._per_minute:
-                wait_time = 60 - (now - self._minute_timestamps[0])
+                wait_time = SECONDS_PER_MINUTE - (now - self._minute_timestamps[0])
                 if wait_time > 0:
                     _LOGGER.debug("Rate limit: waiting %.1fs for minute limit", wait_time)
                     await asyncio.sleep(wait_time)
                     now = time.time()
-                    # Clean again after sleep
                     self._minute_timestamps = [
-                        t for t in self._minute_timestamps if now - t < 60
+                        t for t in self._minute_timestamps if now - t < SECONDS_PER_MINUTE
                     ]
 
-            # Check per-day limit
             if len(self._day_timestamps) >= self._per_day:
-                wait_time = 86400 - (now - self._day_timestamps[0])
+                wait_time = SECONDS_PER_DAY - (now - self._day_timestamps[0])
                 if wait_time > 0:
                     _LOGGER.warning(
                         "Daily rate limit reached. Waiting up to 1 hour. "
                         "Consider increasing poll interval."
                     )
-                    await asyncio.sleep(min(wait_time, 3600))  # Cap wait to 1hr
+                    await asyncio.sleep(min(wait_time, MAX_RATE_LIMIT_WAIT))
                     now = time.time()
 
             # Record this request

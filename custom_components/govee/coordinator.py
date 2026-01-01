@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -250,10 +251,6 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         _LOGGER.debug("Updating Govee device states")
         states: dict[str, GoveeDeviceState] = {}
 
-        # Parallel State Fetching Optimization:
-        # Fetch all device states concurrently instead of sequentially
-        # For 10 devices: ~10x faster (10s → 1s)
-        # Significantly improves user experience with multiple devices
         async def fetch_device_state(
             device_id: str, device: GoveeDevice
         ) -> tuple[str, GoveeDeviceState | Exception]:
@@ -513,73 +510,62 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
             )
             raise
 
-    async def async_get_dynamic_scenes(
-        self, device_id: str, refresh: bool = False
+    async def _async_get_scenes_cached(
+        self,
+        device_id: str,
+        cache: dict[str, list[SceneOption]],
+        fetch_func: Callable[[str, str], Coroutine[Any, Any, list[dict[str, Any]]]],
+        scene_type: str,
+        refresh: bool,
     ) -> list[SceneOption]:
-        """Get dynamic scenes for a device (cached).
-
-        Args:
-            device_id: Device identifier
-            refresh: Force refresh from API
-
-        Returns:
-            List of available scenes
-        """
-        if not refresh and device_id in self._scene_cache:
-            return self._scene_cache[device_id]
+        """Fetch scenes with caching."""
+        if not refresh and device_id in cache:
+            return cache[device_id]
 
         device = self.devices.get(device_id)
         if not device:
             return []
 
         try:
-            raw_scenes = await self.client.get_dynamic_scenes(device_id, device.sku)
+            raw_scenes = await fetch_func(device_id, device.sku)
             scenes = [SceneOption.from_api(s) for s in raw_scenes]
-            self._scene_cache[device_id] = scenes
+            cache[device_id] = scenes
             _LOGGER.debug(
-                "Fetched %d dynamic scenes for %s",
+                "Fetched %d %s scenes for %s",
                 len(scenes),
+                scene_type,
                 device.device_name,
             )
             return scenes
-
         except GoveeApiError as err:
-            _LOGGER.warning("Failed to fetch scenes for %s: %s", device_id, err)
-            return self._scene_cache.get(device_id, [])
+            _LOGGER.warning(
+                "Failed to fetch %s scenes for %s: %s", scene_type, device_id, err
+            )
+            return cache.get(device_id, [])
+
+    async def async_get_dynamic_scenes(
+        self, device_id: str, refresh: bool = False
+    ) -> list[SceneOption]:
+        """Get dynamic scenes for a device (cached)."""
+        return await self._async_get_scenes_cached(
+            device_id,
+            self._scene_cache,
+            self.client.get_dynamic_scenes,
+            "dynamic",
+            refresh,
+        )
 
     async def async_get_diy_scenes(
         self, device_id: str, refresh: bool = False
     ) -> list[SceneOption]:
-        """Get DIY scenes for a device (cached).
-
-        Args:
-            device_id: Device identifier
-            refresh: Force refresh from API
-
-        Returns:
-            List of available DIY scenes
-        """
-        if not refresh and device_id in self._diy_scene_cache:
-            return self._diy_scene_cache[device_id]
-
-        device = self.devices.get(device_id)
-        if not device:
-            return []
-
-        try:
-            raw_scenes = await self.client.get_diy_scenes(device_id, device.sku)
-            scenes = [SceneOption.from_api(s) for s in raw_scenes]
-            self._diy_scene_cache[device_id] = scenes
-            _LOGGER.debug(
-                "Fetched %d DIY scenes for %s",
-                len(scenes),
-                device.device_name,
-            )
-            return scenes
-
-        except GoveeApiError as err:
-            _LOGGER.warning("Failed to fetch DIY scenes for %s: %s", device_id, err)
-            return self._diy_scene_cache.get(device_id, [])
+        """Get DIY scenes for a device (cached)."""
+        return await self._async_get_scenes_cached(
+            device_id,
+            self._diy_scene_cache,
+            self.client.get_diy_scenes,
+            "DIY",
+            refresh,
+        )
 
     @property
     def rate_limit_remaining(self) -> int:

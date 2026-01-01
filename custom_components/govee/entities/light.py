@@ -19,6 +19,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from ..api.const import (
     CAPABILITY_COLOR_SETTING,
     CAPABILITY_DYNAMIC_SCENE,
+    CAPABILITY_MUSIC_SETTING,
     CAPABILITY_ON_OFF,
     CAPABILITY_RANGE,
     CAPABILITY_SEGMENT_COLOR,
@@ -26,12 +27,20 @@ from ..api.const import (
     INSTANCE_COLOR_RGB,
     INSTANCE_COLOR_TEMP,
     INSTANCE_LIGHT_SCENE,
+    INSTANCE_MUSIC_MODE,
     INSTANCE_POWER_SWITCH,
     INSTANCE_SEGMENTED_BRIGHTNESS,
     INSTANCE_SEGMENTED_COLOR,
 )
-from ..const import CONF_OFFLINE_IS_OFF, CONF_USE_ASSUMED_STATE
+from ..api.exceptions import GoveeApiError
+from ..const import (
+    API_BRIGHTNESS_MAX,
+    CONF_OFFLINE_IS_OFF,
+    CONF_USE_ASSUMED_STATE,
+    HA_BRIGHTNESS_MAX,
+)
 from ..coordinator import GoveeDataUpdateCoordinator
+from ..entity_descriptions import LIGHT_DESCRIPTIONS
 from ..models import GoveeDevice
 from ..models.config import GoveeConfigEntry
 from .base import GoveeEntity
@@ -56,7 +65,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         self._entry = entry
         self._attr_unique_id = f"govee_{entry.title}_{device.device_id}"
 
-        from ..entity_descriptions import LIGHT_DESCRIPTIONS
         self.entity_description = LIGHT_DESCRIPTIONS["main"]
 
         self._attr_supported_color_modes = self._determine_color_modes()
@@ -94,26 +102,21 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
             )
             return
 
-        # Restore power state
         if last_state.state in ("on", "off"):
             restored_power = last_state.state == "on"
-
-            # Apply to coordinator state
             if state:
                 state.power_state = restored_power
-                state.online = False  # Still can't query
+                state.online = False
 
-                # Restore brightness if available
                 if last_state.attributes.get(ATTR_BRIGHTNESS):
-                    # Convert HA range (0-255) to API range (0-100)
                     brightness = last_state.attributes[ATTR_BRIGHTNESS]
-                    state.brightness = round(brightness * 100 / 255)
+                    state.brightness = round(
+                        brightness * API_BRIGHTNESS_MAX / HA_BRIGHTNESS_MAX
+                    )
 
-                # Restore color if available
                 if last_state.attributes.get(ATTR_RGB_COLOR):
                     state.color_rgb = tuple(last_state.attributes[ATTR_RGB_COLOR])
 
-                # Restore color temp if available
                 if last_state.attributes.get(ATTR_COLOR_TEMP_KELVIN):
                     state.color_temp_kelvin = last_state.attributes[
                         ATTR_COLOR_TEMP_KELVIN
@@ -125,8 +128,6 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
                     restored_power,
                     state.brightness,
                 )
-
-                # Trigger update
                 self.async_write_ha_state()
 
     def _determine_color_modes(self) -> set[ColorMode]:
@@ -200,8 +201,7 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         if state is None or state.brightness is None:
             return None
 
-        # Convert from API range (0-100) to HA range (0-255)
-        return round(state.brightness * 255 / 100)
+        return round(state.brightness * HA_BRIGHTNESS_MAX / API_BRIGHTNESS_MAX)
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
@@ -307,190 +307,108 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         _LOGGER.debug("async_turn_off for %s", self._device.device_name)
         await self._async_turn_on_off(False)
 
-    async def _async_turn_on_off(self, on: bool) -> None:
-        """Turn the light on or off."""
+    async def _async_control(
+        self, capability: str, instance: str, value: Any, operation: str
+    ) -> None:
+        """Send control command with error handling."""
         try:
             await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_ON_OFF,
-                INSTANCE_POWER_SWITCH,
-                1 if on else 0,
+                self._device_id, capability, instance, value
             )
-        except Exception as err:
+        except GoveeApiError as err:
             _LOGGER.error(
-                "Failed to turn %s %s: %s",
-                "on" if on else "off",
-                self._device.device_name,
-                err,
+                "Failed to %s for %s: %s", operation, self._device.device_name, err
             )
+
+    async def _async_turn_on_off(self, on: bool) -> None:
+        """Turn the light on or off."""
+        await self._async_control(
+            CAPABILITY_ON_OFF,
+            INSTANCE_POWER_SWITCH,
+            1 if on else 0,
+            f"turn {'on' if on else 'off'}",
+        )
 
     async def _async_set_brightness(self, brightness: int) -> None:
         """Set brightness (HA range 0-255)."""
-        # Convert from HA range (0-255) to API range (0-100)
-        api_brightness = round(brightness * 100 / 255)
-
-        # Clamp to device range
+        api_brightness = round(brightness * API_BRIGHTNESS_MAX / HA_BRIGHTNESS_MAX)
         min_val, max_val = self._device.get_brightness_range()
         api_brightness = max(min_val, min(max_val, api_brightness))
-
-        try:
-            await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_RANGE,
-                INSTANCE_BRIGHTNESS,
-                api_brightness,
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to set brightness for %s: %s",
-                self._device.device_name,
-                err,
-            )
+        await self._async_control(
+            CAPABILITY_RANGE, INSTANCE_BRIGHTNESS, api_brightness, "set brightness"
+        )
 
     async def _async_set_color_rgb(self, rgb: tuple[int, int, int]) -> None:
         """Set RGB color."""
         r, g, b = rgb
         color_int = (r << 16) + (g << 8) + b
-
-        try:
-            await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_COLOR_SETTING,
-                INSTANCE_COLOR_RGB,
-                color_int,
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to set color for %s: %s",
-                self._device.device_name,
-                err,
-            )
+        await self._async_control(
+            CAPABILITY_COLOR_SETTING, INSTANCE_COLOR_RGB, color_int, "set color"
+        )
 
     async def _async_set_color_temp(self, temp_kelvin: int) -> None:
         """Set color temperature in Kelvin."""
-        # Get range bounds with defaults
         min_kelvin = self._attr_min_color_temp_kelvin or 2000
         max_kelvin = self._attr_max_color_temp_kelvin or 9000
-
-        # Clamp to device range
         temp_kelvin = max(min_kelvin, min(max_kelvin, temp_kelvin))
-
-        try:
-            await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_COLOR_SETTING,
-                INSTANCE_COLOR_TEMP,
-                temp_kelvin,
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to set color temperature for %s: %s",
-                self._device.device_name,
-                err,
-            )
+        await self._async_control(
+            CAPABILITY_COLOR_SETTING,
+            INSTANCE_COLOR_TEMP,
+            temp_kelvin,
+            "set color temperature",
+        )
 
     async def _async_set_effect(self, effect_name: str) -> None:
         """Set an effect (scene)."""
         if effect_name not in self._effect_map:
             _LOGGER.warning(
-                "Unknown effect '%s' for %s",
-                effect_name,
-                self._device.device_name,
+                "Unknown effect '%s' for %s", effect_name, self._device.device_name
             )
             return
 
-        scene_option = self._effect_map[effect_name]
-        scene_value = scene_option.get("value")
-
-        try:
-            await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_DYNAMIC_SCENE,
-                INSTANCE_LIGHT_SCENE,
-                scene_value,
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to set effect '%s' for %s: %s",
-                effect_name,
-                self._device.device_name,
-                err,
-            )
+        scene_value = self._effect_map[effect_name].get("value")
+        await self._async_control(
+            CAPABILITY_DYNAMIC_SCENE,
+            INSTANCE_LIGHT_SCENE,
+            scene_value,
+            f"set effect '{effect_name}'",
+        )
 
     # === Segment Control (for services) ===
 
     async def async_set_segment_color(
-        self,
-        segments: list[int],
-        rgb: tuple[int, int, int],
+        self, segments: list[int], rgb: tuple[int, int, int]
     ) -> None:
-        """Set color for specific segments.
-
-        This method is called by the govee.set_segment_color service.
-        """
+        """Set color for specific segments (called by service)."""
         if not self._device.supports_segments:
             _LOGGER.warning(
-                "Device %s does not support segment control",
-                self._device.device_name,
+                "Device %s does not support segment control", self._device.device_name
             )
             return
 
         r, g, b = rgb
-        color_int = (r << 16) + (g << 8) + b
-
-        value = {
-            "segment": segments,
-            "rgb": color_int,
-        }
-
-        try:
-            await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_SEGMENT_COLOR,
-                INSTANCE_SEGMENTED_COLOR,
-                value,
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to set segment color for %s: %s",
-                self._device.device_name,
-                err,
-            )
+        value = {"segment": segments, "rgb": (r << 16) + (g << 8) + b}
+        await self._async_control(
+            CAPABILITY_SEGMENT_COLOR, INSTANCE_SEGMENTED_COLOR, value, "set segment color"
+        )
 
     async def async_set_segment_brightness(
-        self,
-        segments: list[int],
-        brightness: int,
+        self, segments: list[int], brightness: int
     ) -> None:
-        """Set brightness for specific segments.
-
-        This method is called by the govee.set_segment_brightness service.
-        """
+        """Set brightness for specific segments (called by service)."""
         if not self._device.supports_segments:
             _LOGGER.warning(
-                "Device %s does not support segment control",
-                self._device.device_name,
+                "Device %s does not support segment control", self._device.device_name
             )
             return
 
-        value = {
-            "segment": segments,
-            "brightness": brightness,
-        }
-
-        try:
-            await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_SEGMENT_COLOR,
-                INSTANCE_SEGMENTED_BRIGHTNESS,
-                value,
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to set segment brightness for %s: %s",
-                self._device.device_name,
-                err,
-            )
+        value = {"segment": segments, "brightness": brightness}
+        await self._async_control(
+            CAPABILITY_SEGMENT_COLOR,
+            INSTANCE_SEGMENTED_BRIGHTNESS,
+            value,
+            "set segment brightness",
+        )
 
     async def async_set_music_mode(
         self,
@@ -499,39 +417,22 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
         auto_color: bool = True,
         rgb: tuple[int, int, int] | None = None,
     ) -> None:
-        """Activate music reactive mode.
-
-        This method is called by the govee.set_music_mode service.
-        """
+        """Activate music reactive mode (called by service)."""
         if not self._device.supports_music_mode:
             _LOGGER.warning(
-                "Device %s does not support music mode",
-                self._device.device_name,
+                "Device %s does not support music mode", self._device.device_name
             )
             return
-
-        from ..api.const import CAPABILITY_MUSIC_SETTING, INSTANCE_MUSIC_MODE
 
         value: dict[str, Any] = {
             "musicMode": mode,
             "sensitivity": sensitivity,
             "autoColor": 1 if auto_color else 0,
         }
-
         if not auto_color and rgb:
             r, g, b = rgb
             value["color"] = (r << 16) + (g << 8) + b
 
-        try:
-            await self.coordinator.async_control_device(
-                self._device_id,
-                CAPABILITY_MUSIC_SETTING,
-                INSTANCE_MUSIC_MODE,
-                value,
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to set music mode for %s: %s",
-                self._device.device_name,
-                err,
-            )
+        await self._async_control(
+            CAPABILITY_MUSIC_SETTING, INSTANCE_MUSIC_MODE, value, "set music mode"
+        )

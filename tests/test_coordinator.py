@@ -907,7 +907,7 @@ class TestSceneCaching:
 
         # Should return cached scenes and log warning
         assert scenes == cached_scenes
-        assert "Failed to fetch scenes" in caplog.text
+        assert "Failed to fetch dynamic scenes" in caplog.text
 
     @pytest.mark.asyncio
     async def test_async_get_dynamic_scenes_unknown_device(

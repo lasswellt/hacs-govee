@@ -12,6 +12,7 @@ from . import GoveeConfigEntry
 from .const import DEVICE_TYPE_LIGHT
 from .entities import GoveeLightEntity
 from .entities.segment import GoveeSegmentLight
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,8 +88,5 @@ async def async_setup_entry(
         segment_count_total,
     )
     async_add_entities(entities)
-
-    # Register light platform services (segment control, music mode, etc.)
-    from .services import async_setup_services
 
     await async_setup_services(hass)

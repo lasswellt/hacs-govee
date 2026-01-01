@@ -17,6 +17,7 @@ from homeassistant.const import STATE_ON, STATE_OFF
 
 from custom_components.govee.light import async_setup_entry
 from custom_components.govee.entities import GoveeLightEntity
+from custom_components.govee.api.exceptions import GoveeApiError
 from custom_components.govee.api.const import (
     CAPABILITY_COLOR_SETTING,
     CAPABILITY_DYNAMIC_SCENE,
@@ -70,7 +71,7 @@ class TestAsyncSetupEntry:
         async_add_entities = MagicMock()
 
         with patch(
-            "custom_components.govee.services.async_setup_services",
+            "custom_components.govee.light.async_setup_services",
             new_callable=AsyncMock,
         ):
             await async_setup_entry(hass, mock_config_entry, async_add_entities)
@@ -97,7 +98,7 @@ class TestAsyncSetupEntry:
         }
 
         with patch(
-            "custom_components.govee.services.async_setup_services",
+            "custom_components.govee.light.async_setup_services",
             new_callable=AsyncMock,
         ) as mock_setup_services:
             await async_setup_entry(hass, mock_config_entry, MagicMock())
@@ -125,7 +126,7 @@ class TestAsyncSetupEntry:
         async_add_entities = MagicMock()
 
         with patch(
-            "custom_components.govee.services.async_setup_services",
+            "custom_components.govee.light.async_setup_services",
             new_callable=AsyncMock,
         ):
             await async_setup_entry(hass, mock_config_entry, async_add_entities)
@@ -165,7 +166,7 @@ class TestAsyncSetupEntry:
         }
 
         with patch(
-            "custom_components.govee.services.async_setup_services",
+            "custom_components.govee.light.async_setup_services",
             new_callable=AsyncMock,
         ):
             await async_setup_entry(hass, mock_config_entry, MagicMock())
@@ -708,7 +709,7 @@ class TestTurnOnOff:
     ):
         """Test async_turn_on handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
 
@@ -748,7 +749,7 @@ class TestTurnOnOff:
     ):
         """Test async_turn_off handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
 
@@ -822,7 +823,7 @@ class TestBrightnessControl:
     ):
         """Test brightness control handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
 
@@ -894,7 +895,7 @@ class TestRGBColorControl:
     ):
         """Test RGB color control handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
 
@@ -987,7 +988,7 @@ class TestColorTemperatureControl:
     ):
         """Test color temp control handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(mock_coordinator, mock_device_light, mock_config_entry)
 
@@ -1066,7 +1067,7 @@ class TestEffectControl:
     ):
         """Test effect control handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(
             mock_coordinator, mock_device_light_with_scenes, mock_config_entry
@@ -1175,7 +1176,7 @@ class TestSegmentControl:
     ):
         """Test async_set_segment_brightness handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(
             mock_coordinator, mock_device_light_with_segments, mock_config_entry
@@ -1294,7 +1295,7 @@ class TestMusicMode:
     ):
         """Test async_set_music_mode handles errors."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(
             mock_coordinator, mock_device_light_with_music_mode, mock_config_entry
@@ -1634,7 +1635,7 @@ class TestSegmentControlErrors:
     ):
         """Test async_set_segment_color handles API errors (lines 503-504)."""
         mock_coordinator.async_control_device = AsyncMock(
-            side_effect=Exception("API error")
+            side_effect=GoveeApiError("API error")
         )
         entity = GoveeLightEntity(
             mock_coordinator, mock_device_light_with_segments, mock_config_entry

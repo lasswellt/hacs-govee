@@ -12,6 +12,10 @@ CONF_OFFLINE_IS_OFF = "offline_is_off"
 CONF_POLL_INTERVAL = "delay"  # Poll interval in seconds
 CONF_USE_ASSUMED_STATE = "use_assumed_state"
 
+# Brightness range conversion
+HA_BRIGHTNESS_MAX = 255
+API_BRIGHTNESS_MAX = 100
+
 # Color temperature range (Kelvin)
 COLOR_TEMP_KELVIN_MIN = 2000
 COLOR_TEMP_KELVIN_MAX = 9000
@@ -30,17 +34,8 @@ DEVICE_TYPE_THERMOMETER = "devices.types.thermometer"
 DEVICE_TYPE_SENSOR = "devices.types.sensor"
 DEVICE_TYPE_AROMA_DIFFUSER = "devices.types.aroma_diffuser"
 
-# Group device SKUs (Govee Home app groups/shortcuts)
-# API Behavior (tested 2025-12-29):
-#   ✅ Discovery: Groups appear in device list
-#   ✅ Control: Commands succeed (on/off works)
-#   ❌ State: Queries return "devices not exist" error
-# Result: Groups can be controlled but will show as "unavailable" in UI
-UNSUPPORTED_DEVICE_SKUS = {
-    "SameModeGroup",  # Same Model device group
-    "BaseGroup",  # Base device group
-    "DreamViewScenic",  # DreamView scene shortcut
-}
+# Group device SKUs (Govee Home app groups) - control works but state queries fail
+UNSUPPORTED_DEVICE_SKUS = {"SameModeGroup", "BaseGroup", "DreamViewScenic"}
 
 # Platform mapping by device type
 DEVICE_TYPE_PLATFORMS: dict[str, list[Platform]] = {
