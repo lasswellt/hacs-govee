@@ -18,7 +18,6 @@ from collections.abc import Mapping
 from .api import GoveeApiClient, GoveeApiError, GoveeAuthError
 from .const import (
     CONFIG_ENTRY_VERSION,
-    CONF_DISABLE_ATTRIBUTE_UPDATES,
     CONF_ENABLE_GROUP_DEVICES,
     CONF_OFFLINE_IS_OFF,
     CONF_USE_ASSUMED_STATE,
@@ -197,12 +196,6 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_ENABLE_GROUP_DEVICES,
                     default=self.config_entry.options.get(CONF_ENABLE_GROUP_DEVICES, False),
                 ): cv.boolean,
-                vol.Optional(
-                    CONF_DISABLE_ATTRIBUTE_UPDATES,
-                    default=self.config_entry.options.get(
-                        CONF_DISABLE_ATTRIBUTE_UPDATES, ""
-                    ),
-                ): cv.string,
             },
         )
 

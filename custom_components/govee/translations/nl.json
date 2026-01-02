@@ -29,21 +29,19 @@
   "options": {
     "error": {
       "cannot_connect": "Kan niet verbinden. Is de API-sleutel correct en werkt de internetverbinding?",
-      "unknown": "Onbekende fout.",
-      "disabled_attribute_updates_wrong": "Verkeerd formaat, zie README hierboven."
+      "unknown": "Onbekende fout."
     },
     "step": {
       "user": {
         "data": {
           "api_key": "API-sleutel (herstart vereist)",
-          "delay": "Poll-interval (herstart vereist)",
-          "use_assumed_state": "Gebruik 'veronderstelde status' (twee knoppen). Standaard: Waar",
-          "offline_is_off": "Wanneer een LED offline is, toon deze als uit. Standaard: Onwaar",
-          "enable_group_devices": "Groepsapparaten inschakelen (Besturing werkt, status niet beschikbaar). Standaard: Onwaar",
-          "disable_attribute_updates": "Statusupdates UITSCHAKELEN. Spatie om uit te schakelen. Lees de README hierboven!"
+          "delay": "Poll-interval in seconden (herstart vereist)",
+          "use_assumed_state": "Gebruik veronderstelde status (toont aparte aan/uit knoppen)",
+          "offline_is_off": "Toon offline apparaten als uit",
+          "enable_group_devices": "Groepsapparaten inschakelen (experimenteel)"
         },
         "title": "Opties",
-        "description": "Configureer de Govee-integratie. Wijzigingen aan API-sleutel en poll-interval vereisen een herstart."
+        "description": "Configureer de Govee-integratie. Zie de [README](https://github.com/LaggAt/hacs-govee/blob/master/README.md) voor meer details."
       }
     }
   },

@@ -29,21 +29,19 @@
   "options": {
     "error": {
       "cannot_connect": "No se puede conectar. ¿Es correcta la clave API y funciona la conexión a internet?",
-      "unknown": "Error desconocido.",
-      "disabled_attribute_updates_wrong": "Formato incorrecto, consulta el README anterior."
+      "unknown": "Error desconocido."
     },
     "step": {
       "user": {
         "data": {
           "api_key": "Clave API (requiere reinicio)",
-          "delay": "Intervalo de sondeo (requiere reinicio)",
-          "use_assumed_state": "Usar 'estado asumido' (dos botones). Por defecto: Verdadero",
-          "offline_is_off": "Cuando un LED está fuera de línea, mostrarlo como apagado. Por defecto: Falso",
-          "enable_group_devices": "Habilitar dispositivos de grupo (Control funciona, estado no disponible). Por defecto: Falso",
-          "disable_attribute_updates": "DESHABILITAR actualizaciones de estado. Espacio para deshabilitar. ¡Lee el README anterior!"
+          "delay": "Intervalo de sondeo en segundos (requiere reinicio)",
+          "use_assumed_state": "Usar estado asumido (muestra botones separados on/off)",
+          "offline_is_off": "Mostrar dispositivos fuera de línea como apagados",
+          "enable_group_devices": "Habilitar dispositivos de grupo (experimental)"
         },
         "title": "Opciones",
-        "description": "Configura la integración Govee. Los cambios en la clave API y el intervalo de sondeo requieren reinicio."
+        "description": "Configura la integración Govee. Para más detalles, consulta el [README](https://github.com/LaggAt/hacs-govee/blob/master/README.md)."
       }
     }
   },

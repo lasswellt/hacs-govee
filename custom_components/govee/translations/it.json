@@ -29,21 +29,19 @@
   "options": {
     "error": {
       "cannot_connect": "Impossibile connettersi. La chiave API è corretta e la connessione internet funziona?",
-      "unknown": "Errore sconosciuto.",
-      "disabled_attribute_updates_wrong": "Formato errato, vedi il README sopra."
+      "unknown": "Errore sconosciuto."
     },
     "step": {
       "user": {
         "data": {
           "api_key": "Chiave API (richiede riavvio)",
-          "delay": "Intervallo di polling (richiede riavvio)",
-          "use_assumed_state": "Usa 'stato presunto' (due pulsanti). Predefinito: Vero",
-          "offline_is_off": "Quando un LED è offline, mostralo come spento. Predefinito: Falso",
-          "enable_group_devices": "Abilita dispositivi di gruppo (Il controllo funziona, stato non disponibile). Predefinito: Falso",
-          "disable_attribute_updates": "DISABILITA aggiornamenti di stato. Spazio per disabilitare. Leggi il README sopra!"
+          "delay": "Intervallo di polling in secondi (richiede riavvio)",
+          "use_assumed_state": "Usa stato presunto (mostra pulsanti on/off separati)",
+          "offline_is_off": "Mostra dispositivi offline come spenti",
+          "enable_group_devices": "Abilita dispositivi di gruppo (sperimentale)"
         },
         "title": "Opzioni",
-        "description": "Configura l'integrazione Govee. Le modifiche alla chiave API e all'intervallo richiedono un riavvio."
+        "description": "Configura l'integrazione Govee. Per dettagli, consulta il [README](https://github.com/LaggAt/hacs-govee/blob/master/README.md)."
       }
     }
   },

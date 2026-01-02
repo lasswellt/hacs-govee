@@ -14,7 +14,6 @@ from custom_components.govee.const import (
     CONF_USE_ASSUMED_STATE,
     CONF_OFFLINE_IS_OFF,
     CONF_ENABLE_GROUP_DEVICES,
-    CONF_DISABLE_ATTRIBUTE_UPDATES,
     DEFAULT_POLL_INTERVAL,
 )
 from custom_components.govee.config_flow import (
@@ -271,7 +270,6 @@ class TestGoveeOptionsFlowHandler:
                 CONF_USE_ASSUMED_STATE: False,
                 CONF_OFFLINE_IS_OFF: True,
                 CONF_ENABLE_GROUP_DEVICES: True,
-                CONF_DISABLE_ATTRIBUTE_UPDATES: "API:power_state",
             },
         )
 
@@ -281,7 +279,6 @@ class TestGoveeOptionsFlowHandler:
         assert result2["data"][CONF_USE_ASSUMED_STATE] is False
         assert result2["data"][CONF_OFFLINE_IS_OFF] is True
         assert result2["data"][CONF_ENABLE_GROUP_DEVICES] is True
-        assert result2["data"][CONF_DISABLE_ATTRIBUTE_UPDATES] == "API:power_state"
 
     @pytest.mark.asyncio
     async def test_options_flow_validates_new_api_key(

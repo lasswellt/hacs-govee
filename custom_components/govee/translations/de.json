@@ -29,21 +29,19 @@
   "options": {
     "error": {
       "cannot_connect": "Keine Verbindung möglich. Ist der API-Key richtig und die Internet Verbindung in Ordnung?",
-      "unknown": "Unbekannter Fehler.",
-      "disabled_attribute_updates_wrong": "Format ist inkorrekt, bitte README lesen."
+      "unknown": "Unbekannter Fehler."
     },
     "step": {
       "user": {
         "data": {
           "api_key": "API Key (benötigt Neustart)",
-          "delay": "Abfrage-Intervall (benötigt Neustart)",
-          "use_assumed_state": "Verwende 'angenommenen Zustand' (zwei Buttons). Standard: True",
-          "offline_is_off": "Wenn eine LED offline ist, zeige sie als Aus (Standard ändert den Status nicht). Standard: False",
-          "enable_group_devices": "Gruppengeräte aktivieren (Steuerung funktioniert, Status nicht verfügbar). Standard: False",
-          "disable_attribute_updates": "Status updates verhindern. Leertaste zum ausschalten. Bitte das README oben dazu lesen."
+          "delay": "Abfrage-Intervall in Sekunden (benötigt Neustart)",
+          "use_assumed_state": "Angenommenen Zustand verwenden (zeigt separate Ein/Aus-Tasten)",
+          "offline_is_off": "Offline-Geräte als ausgeschaltet anzeigen",
+          "enable_group_devices": "Gruppengeräte aktivieren (experimentell)"
         },
         "title": "Einstellungen",
-        "description": "Govee Integration konfigurieren. Änderungen an API-Schlüssel und Abfrageintervall erfordern einen Neustart."
+        "description": "Govee Integration konfigurieren. Weitere Details finden Sie in der [README](https://github.com/LaggAt/hacs-govee/blob/master/README.md)."
       }
     }
   },
