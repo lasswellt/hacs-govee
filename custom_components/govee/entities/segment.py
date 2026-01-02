@@ -94,14 +94,7 @@ class GoveeSegmentLight(GoveeEntity, LightEntity, RestoreEntity):
         else:
             target_rgb = (255, 255, 255)
 
-        if brightness is not None:
-            scale = brightness / 255.0
-            target_rgb = (
-                int(target_rgb[0] * scale),
-                int(target_rgb[1] * scale),
-                int(target_rgb[2] * scale),
-            )
-
+        # Set color using segment color API
         await self.coordinator.async_set_segment_color(
             self._device.device_id,
             self._device.sku,
@@ -109,10 +102,19 @@ class GoveeSegmentLight(GoveeEntity, LightEntity, RestoreEntity):
             target_rgb,
         )
 
+        # Set brightness using native segment brightness API (0-100 scale)
+        if brightness is not None:
+            brightness_percent = round((brightness / 255.0) * 100)
+            await self.coordinator.async_set_segment_brightness(
+                self._device.device_id,
+                self._device.sku,
+                self._segment_index,
+                brightness_percent,
+            )
+            self._optimistic_brightness = brightness
+
         self._optimistic_on = True
         self._optimistic_rgb = target_rgb
-        if brightness is not None:
-            self._optimistic_brightness = brightness
 
         if self.device_state is not None:
             self.device_state.apply_segment_update(self._segment_index, target_rgb)

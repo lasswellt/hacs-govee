@@ -78,6 +78,7 @@ def mock_segment_coordinator(hass: HomeAssistant) -> MagicMock:
     coordinator = MagicMock()
     coordinator.hass = hass
     coordinator.async_set_segment_color = AsyncMock()
+    coordinator.async_set_segment_brightness = AsyncMock()
     coordinator.last_update_success = True
     coordinator.data = {}
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
@@ -254,25 +255,34 @@ class TestSegmentLightTurnOn:
             (100, 150, 200),
         )
 
-    async def test_turn_on_with_brightness_scales_color(
+    async def test_turn_on_with_brightness_uses_native_api(
         self,
         hass: HomeAssistant,
         segment_light: GoveeSegmentLight,
         mock_segment_coordinator: MagicMock,
         mock_segment_device: GoveeDevice,
     ) -> None:
-        """Test turn_on with brightness scales the RGB color."""
+        """Test turn_on with brightness uses native brightness API."""
         segment_light.hass = hass
 
         # Turn on with 50% brightness (128/255)
         with patch.object(segment_light, "async_write_ha_state"):
             await segment_light.async_turn_on(**{ATTR_BRIGHTNESS: 128})
 
-        # Default white (255, 255, 255) scaled by ~50%
-        expected_rgb = (128, 128, 128)  # int(255 * 128/255) = 128
-        mock_segment_coordinator.async_set_segment_color.assert_called_once()
-        call_args = mock_segment_coordinator.async_set_segment_color.call_args
-        assert call_args[0][3] == expected_rgb
+        # Color should be sent unscaled (white by default)
+        mock_segment_coordinator.async_set_segment_color.assert_called_once_with(
+            mock_segment_device.device_id,
+            mock_segment_device.sku,
+            0,
+            (255, 255, 255),
+        )
+        # Brightness should be sent via native API (0-100 scale)
+        mock_segment_coordinator.async_set_segment_brightness.assert_called_once_with(
+            mock_segment_device.device_id,
+            mock_segment_device.sku,
+            0,
+            50,  # 128/255 * 100 = ~50%
+        )
         assert segment_light._optimistic_brightness == 128
 
     async def test_turn_on_with_rgb_and_brightness(
@@ -280,6 +290,7 @@ class TestSegmentLightTurnOn:
         hass: HomeAssistant,
         segment_light: GoveeSegmentLight,
         mock_segment_coordinator: MagicMock,
+        mock_segment_device: GoveeDevice,
     ) -> None:
         """Test turn_on with both RGB color and brightness."""
         segment_light.hass = hass
@@ -291,11 +302,20 @@ class TestSegmentLightTurnOn:
                 ATTR_BRIGHTNESS: 128,
             })
 
-        # Color should be scaled by brightness
-        scale = 128 / 255
-        expected_rgb = (int(200 * scale), int(100 * scale), int(50 * scale))
-        call_args = mock_segment_coordinator.async_set_segment_color.call_args
-        assert call_args[0][3] == expected_rgb
+        # Color should be sent unscaled via color API
+        mock_segment_coordinator.async_set_segment_color.assert_called_once_with(
+            mock_segment_device.device_id,
+            mock_segment_device.sku,
+            0,
+            (200, 100, 50),
+        )
+        # Brightness should be sent via native brightness API
+        mock_segment_coordinator.async_set_segment_brightness.assert_called_once_with(
+            mock_segment_device.device_id,
+            mock_segment_device.sku,
+            0,
+            50,  # 128/255 * 100 = ~50%
+        )
 
     async def test_turn_on_uses_white_when_previous_was_black(
         self,
