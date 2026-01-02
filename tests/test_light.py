@@ -7,7 +7,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
-    ATTR_EFFECT,
     ATTR_RGB_COLOR,
     ColorMode,
     LightEntityFeature,
@@ -37,8 +36,6 @@ from custom_components.govee.api.const import (
 from custom_components.govee.const import (
     COLOR_TEMP_KELVIN_MIN,
     COLOR_TEMP_KELVIN_MAX,
-    CONF_OFFLINE_IS_OFF,
-    CONF_USE_ASSUMED_STATE,
 )
 from custom_components.govee.models import GoveeDeviceState
 

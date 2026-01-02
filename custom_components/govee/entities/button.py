@@ -12,10 +12,7 @@ import logging
 from homeassistant.components.button import ButtonEntity
 
 from ..coordinator import GoveeDataUpdateCoordinator
-from ..entity_descriptions.button import (
-    GoveeButtonEntityDescription,
-    BUTTON_DESCRIPTIONS,
-)
+from ..entity_descriptions.button import GoveeButtonEntityDescription
 from ..models import GoveeDevice
 from .base import GoveeEntity
 

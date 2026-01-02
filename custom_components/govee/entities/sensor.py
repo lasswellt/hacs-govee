@@ -5,11 +5,7 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorEntity
 
 from ..coordinator import GoveeDataUpdateCoordinator
-from ..entity_descriptions.sensor import (
-    GoveeSensorEntityDescription,
-    SENSOR_DESCRIPTIONS,
-)
-from .base import GoveeEntity
+from ..entity_descriptions.sensor import GoveeSensorEntityDescription
 
 
 class GoveeRateLimitSensor(SensorEntity):

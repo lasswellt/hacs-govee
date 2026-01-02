@@ -1,10 +1,9 @@
 """Test Govee switch platform."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.components.switch import SwitchDeviceClass
 
 from custom_components.govee.switch import (
     async_setup_entry,

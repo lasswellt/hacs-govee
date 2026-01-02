@@ -4,7 +4,7 @@ from typing import TypedDict
 
 from typing_extensions import NotRequired
 
-from .types import DeviceCapabilityDict, ParametersDict, SceneOptionDict, StateCapabilityDict
+from .types import DeviceCapabilityDict, ParametersDict, StateCapabilityDict
 
 
 class DeviceDict(TypedDict):

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
-import pytest
-from homeassistant.core import HomeAssistant
 
 from custom_components.govee.entities.base import GoveeEntity
 from custom_components.govee.const import DOMAIN

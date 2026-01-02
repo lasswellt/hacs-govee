@@ -4,8 +4,6 @@ This tests that TypedDict definitions are properly structured and can be used.
 """
 from __future__ import annotations
 
-import pytest
-
 from custom_components.govee.api.requests import (
     DeviceIdentifier,
     DeviceStateRequestPayload,

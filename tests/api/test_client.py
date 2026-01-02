@@ -10,7 +10,6 @@ from aiohttp import ContentTypeError
 
 from custom_components.govee.api.client import GoveeApiClient, RateLimiter
 from custom_components.govee.api.const import (
-    BASE_URL,
     CAPABILITY_COLOR_SETTING,
     CAPABILITY_DYNAMIC_SCENE,
     CAPABILITY_MUSIC_SETTING,
@@ -23,7 +22,6 @@ from custom_components.govee.api.const import (
     ENDPOINT_DEVICES,
     ENDPOINT_DEVICE_CONTROL,
     ENDPOINT_DEVICE_STATE,
-    ENDPOINT_DIY_SCENES,
     ENDPOINT_DYNAMIC_SCENES,
     HEADER_API_RATE_LIMIT_REMAINING,
     HEADER_API_RATE_LIMIT_RESET,
@@ -100,8 +98,6 @@ class TestRateLimiter:
         await limiter.acquire()
 
         # Third request should wait
-        start = time.time()
-
         # Mock sleep to avoid actual waiting
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await limiter.acquire()

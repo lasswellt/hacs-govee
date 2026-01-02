@@ -17,7 +17,6 @@ from custom_components.govee import (
 )
 from custom_components.govee.const import (
     CONFIG_ENTRY_VERSION,
-    DEFAULT_POLL_INTERVAL,
     DOMAIN,
     PLATFORMS,
 )

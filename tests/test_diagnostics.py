@@ -1,8 +1,7 @@
 """Tests for Govee integration diagnostics."""
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.const import CONF_API_KEY
@@ -13,7 +12,6 @@ from custom_components.govee.const import DOMAIN, CONF_POLL_INTERVAL
 from custom_components.govee.diagnostics import async_get_config_entry_diagnostics
 from custom_components.govee.models import (
     GoveeDevice,
-    GoveeDeviceState,
     GoveeRuntimeData,
     DeviceCapability,
     CapabilityParameter,

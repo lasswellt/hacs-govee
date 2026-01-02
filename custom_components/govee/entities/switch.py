@@ -8,13 +8,11 @@ from typing import Any
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 
 from ..api.const import (
-    CAPABILITY_ON_OFF,
     CAPABILITY_TOGGLE,
     INSTANCE_AIR_DEFLECTOR_TOGGLE,
     INSTANCE_GRADIENT_TOGGLE,
     INSTANCE_NIGHTLIGHT_TOGGLE,
     INSTANCE_OSCILLATION_TOGGLE,
-    INSTANCE_POWER_SWITCH,
     INSTANCE_THERMOSTAT_TOGGLE,
     INSTANCE_WARM_MIST_TOGGLE,
 )

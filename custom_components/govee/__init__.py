@@ -10,7 +10,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import GoveeApiClient, GoveeApiError, GoveeAuthError
-from .const import CONFIG_ENTRY_VERSION, DEFAULT_POLL_INTERVAL, DOMAIN, PLATFORMS
+from .const import CONFIG_ENTRY_VERSION, DEFAULT_POLL_INTERVAL, PLATFORMS
 from .coordinator import GoveeDataUpdateCoordinator
 from .models import GoveeConfigEntry, GoveeRuntimeData
 

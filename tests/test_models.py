@@ -1,8 +1,6 @@
 """Test Govee data models."""
 from __future__ import annotations
 
-import pytest
-
 from custom_components.govee.models import (
     GoveeDevice,
     GoveeDeviceState,

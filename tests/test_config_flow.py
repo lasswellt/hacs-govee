@@ -14,7 +14,6 @@ from custom_components.govee.const import (
     CONF_USE_ASSUMED_STATE,
     CONF_OFFLINE_IS_OFF,
     CONF_ENABLE_GROUP_DEVICES,
-    DEFAULT_POLL_INTERVAL,
 )
 from custom_components.govee.config_flow import (
     validate_api_key,

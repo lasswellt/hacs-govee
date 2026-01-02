@@ -14,8 +14,8 @@ from custom_components.govee.api.exceptions import (
     GoveeAuthError,
     GoveeRateLimitError,
 )
-from custom_components.govee.models import GoveeDevice, GoveeDeviceState, SceneOption
-from custom_components.govee.const import CONF_ENABLE_GROUP_DEVICES, DOMAIN
+from custom_components.govee.models import GoveeDeviceState, SceneOption
+from custom_components.govee.const import DOMAIN
 
 
 # ==============================================================================

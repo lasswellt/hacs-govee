@@ -1,16 +1,13 @@
 """Tests for Govee segment light entities."""
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ColorMode
 from homeassistant.const import STATE_ON, STATE_OFF
 from homeassistant.core import HomeAssistant, State
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.govee.const import DOMAIN
 from custom_components.govee.entities.segment import GoveeSegmentLight
 from custom_components.govee.models import (
     GoveeDevice,
