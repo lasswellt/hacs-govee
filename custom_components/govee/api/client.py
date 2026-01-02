@@ -374,7 +374,14 @@ class GoveeApiClient:
             },
         }
 
-        response = await self._request("POST", ENDPOINT_SNAPSHOTS, payload)
+        try:
+            response = await self._request("POST", ENDPOINT_SNAPSHOTS, payload)
+        except GoveeApiError as err:
+            # Snapshot endpoint may not exist (404) - this is expected
+            if err.code == 404:
+                return []
+            raise
+
         capabilities = response.get("payload", {}).get("capabilities", [])
 
         scenes = []

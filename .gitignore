@@ -142,3 +142,6 @@ custom_components/hacs
 
 # remove the govee library subtree from the integration
 .git-subtree/
+
+# Local test scripts
+test_api_validation.py
