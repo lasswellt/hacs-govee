@@ -32,8 +32,8 @@ class TestAsyncSetupEntry:
         # Should add sensor entities
         async_add_entities.assert_called_once()
         entities = async_add_entities.call_args[0][0]
-        # Should have 2 rate limit sensors (minute and day)
-        assert len(entities) == 2
+        # Should have 3 sensors: rate limit minute, rate limit day, mqtt status
+        assert len(entities) == 3
         for entity in entities:
             assert isinstance(entity, GoveeRateLimitSensor)
 
@@ -78,6 +78,24 @@ class TestGoveeRateLimitSensor:
         entity = GoveeRateLimitSensor(mock_coordinator, description)
 
         assert entity.native_value == 9500
+
+    def test_sensor_native_value_mqtt_status_connected(self, mock_coordinator):
+        """Test native_value for MQTT status sensor when connected."""
+        mock_coordinator.mqtt_connected = True
+
+        description = SENSOR_DESCRIPTIONS["mqtt_status"]
+        entity = GoveeRateLimitSensor(mock_coordinator, description)
+
+        assert entity.native_value == "Connected"
+
+    def test_sensor_native_value_mqtt_status_disconnected(self, mock_coordinator):
+        """Test native_value for MQTT status sensor when disconnected."""
+        mock_coordinator.mqtt_connected = False
+
+        description = SENSOR_DESCRIPTIONS["mqtt_status"]
+        entity = GoveeRateLimitSensor(mock_coordinator, description)
+
+        assert entity.native_value == "Disconnected"
 
     def test_sensor_native_value_unknown_key(self, mock_coordinator):
         """Test native_value returns None for unknown key (entities/sensor.py line 57)."""

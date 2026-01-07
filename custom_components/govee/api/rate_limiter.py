@@ -42,9 +42,12 @@ class RateLimitStatus:
 class RateLimiter:
     """Rate limiter for Govee API with dual limits (per-minute and per-day).
 
-    Govee API Rate Limits:
-    - Per-minute limit: 100 requests/minute
-    - Per-day limit: 10,000 requests/day
+    Govee API Rate Limits (per documentation):
+    - Per-minute limit: 10 requests/minute per device (API-RateLimit-* headers)
+    - Per-day limit: 10,000 requests/day global (X-RateLimit-* headers)
+
+    Note: The per-minute limit is per-device, but we track a global conservative
+    estimate since requests from all devices share this limiter instance.
 
     Rate Limiting Algorithm:
     1. Track timestamps of all recent requests (minute and day windows)
@@ -162,15 +165,22 @@ class RateLimiter:
             self._day_timestamps.append(now)
 
     def update_from_headers(self, headers: dict[str, str]) -> None:
-        """Update rate limit state from API response headers."""
-        if HEADER_RATE_LIMIT_REMAINING in headers:
-            self._api_remaining_minute = int(headers[HEADER_RATE_LIMIT_REMAINING])
-        if HEADER_RATE_LIMIT_RESET in headers:
-            self._api_reset_minute = float(headers[HEADER_RATE_LIMIT_RESET])
+        """Update rate limit state from API response headers.
+
+        Govee API uses two sets of headers:
+        - API-RateLimit-* headers: Per-minute limits (10/min per device)
+        - X-RateLimit-* headers: Per-day limits (10,000/day global)
+        """
+        # Per-minute headers (API-RateLimit-*)
         if HEADER_API_RATE_LIMIT_REMAINING in headers:
-            self._api_remaining_day = int(headers[HEADER_API_RATE_LIMIT_REMAINING])
+            self._api_remaining_minute = int(headers[HEADER_API_RATE_LIMIT_REMAINING])
         if HEADER_API_RATE_LIMIT_RESET in headers:
-            self._api_reset_day = float(headers[HEADER_API_RATE_LIMIT_RESET])
+            self._api_reset_minute = float(headers[HEADER_API_RATE_LIMIT_RESET])
+        # Per-day headers (X-RateLimit-*)
+        if HEADER_RATE_LIMIT_REMAINING in headers:
+            self._api_remaining_day = int(headers[HEADER_RATE_LIMIT_REMAINING])
+        if HEADER_RATE_LIMIT_RESET in headers:
+            self._api_reset_day = float(headers[HEADER_RATE_LIMIT_RESET])
 
     def record_success(self) -> None:
         """Record a successful API request, resetting backoff."""

@@ -8,15 +8,21 @@ ENDPOINT_DEVICE_CONTROL = "device/control"
 ENDPOINT_DYNAMIC_SCENES = "device/scenes"
 ENDPOINT_DIY_SCENES = "device/diy-scenes"
 
-RATE_LIMIT_PER_MINUTE = 100
+# Govee API Rate Limits (per API documentation):
+# - Per-minute: 10 requests/minute per device (API-RateLimit-* headers)
+# - Per-day: 10,000 requests/day global (X-RateLimit-* headers)
+# Note: The per-minute limit is per-device, so we use a conservative global estimate
+RATE_LIMIT_PER_MINUTE = 10
 RATE_LIMIT_PER_DAY = 10000
 
 SECONDS_PER_MINUTE = 60
 SECONDS_PER_DAY = 86400
 MAX_RATE_LIMIT_WAIT = 3600
 
+# Per-day rate limit headers (X-RateLimit-*)
 HEADER_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining"
 HEADER_RATE_LIMIT_RESET = "X-RateLimit-Reset"
+# Per-minute rate limit headers (API-RateLimit-*)
 HEADER_API_RATE_LIMIT_REMAINING = "API-RateLimit-Remaining"
 HEADER_API_RATE_LIMIT_RESET = "API-RateLimit-Reset"
 

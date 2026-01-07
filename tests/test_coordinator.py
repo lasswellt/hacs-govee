@@ -366,7 +366,12 @@ class TestStateUpdates:
         mock_device_light,
         caplog,
     ):
-        """Test update handles rate limit errors."""
+        """Test update raises UpdateFailed on rate limit errors.
+
+        When rate limits are hit, the coordinator now raises UpdateFailed
+        to signal Home Assistant to back off. This uses HA's built-in
+        retry mechanism for proper backoff handling.
+        """
         coordinator = GoveeDataUpdateCoordinator(
             hass,
             mock_config_entry,
@@ -390,11 +395,13 @@ class TestStateUpdates:
             side_effect=GoveeRateLimitError("Rate limit exceeded")
         )
 
-        states = await coordinator._async_update_data()
+        # Should raise UpdateFailed to trigger HA's retry mechanism
+        with pytest.raises(UpdateFailed, match="rate limited"):
+            await coordinator._async_update_data()
 
-        # Should keep previous state and log warning
-        assert states[mock_device_light.device_id].brightness == 100
+        # Should log warning about rate limit
         assert "Rate limit hit" in caplog.text
+        assert "backing off" in caplog.text
 
     @pytest.mark.asyncio
     async def test_async_update_data_handles_api_error_regular_device(

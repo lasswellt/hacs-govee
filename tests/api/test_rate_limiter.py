@@ -21,7 +21,8 @@ class TestRateLimiterInit:
         """Test rate limiter initializes with default values."""
         limiter = RateLimiter()
 
-        assert limiter._per_minute == 100
+        # Per Govee API docs: 10/min per device, 10,000/day global
+        assert limiter._per_minute == 10
         assert limiter._per_day == 10000
         assert limiter._backoff_base == DEFAULT_BACKOFF_BASE
         assert limiter._backoff_max == DEFAULT_BACKOFF_MAX
@@ -172,27 +173,32 @@ class TestRateLimiterAcquire:
 
 
 class TestRateLimiterHeaders:
-    """Test updating from API response headers."""
+    """Test updating from API response headers.
+
+    Per Govee API documentation:
+    - API-RateLimit-* headers: Per-minute limits (10/min per device)
+    - X-RateLimit-* headers: Per-day limits (10,000/day global)
+    """
 
     def test_update_from_headers_minute(self):
-        """Test updating minute limit from headers."""
+        """Test updating minute limit from API-RateLimit-* headers."""
         limiter = RateLimiter()
 
         limiter.update_from_headers({
-            "X-RateLimit-Remaining": "95",
-            "X-RateLimit-Reset": "1704067200",
+            "API-RateLimit-Remaining": "8",
+            "API-RateLimit-Reset": "1704067200",
         })
 
-        assert limiter._api_remaining_minute == 95
+        assert limiter._api_remaining_minute == 8
         assert limiter._api_reset_minute == 1704067200.0
 
     def test_update_from_headers_day(self):
-        """Test updating day limit from headers."""
+        """Test updating day limit from X-RateLimit-* headers."""
         limiter = RateLimiter()
 
         limiter.update_from_headers({
-            "API-RateLimit-Remaining": "9500",
-            "API-RateLimit-Reset": "1704153600",
+            "X-RateLimit-Remaining": "9500",
+            "X-RateLimit-Reset": "1704153600",
         })
 
         assert limiter._api_remaining_day == 9500
@@ -203,13 +209,13 @@ class TestRateLimiterHeaders:
         limiter = RateLimiter()
 
         limiter.update_from_headers({
-            "X-RateLimit-Remaining": "90",
-            "X-RateLimit-Reset": "1704067200",
-            "API-RateLimit-Remaining": "9000",
-            "API-RateLimit-Reset": "1704153600",
+            "API-RateLimit-Remaining": "8",
+            "API-RateLimit-Reset": "1704067200",
+            "X-RateLimit-Remaining": "9000",
+            "X-RateLimit-Reset": "1704153600",
         })
 
-        assert limiter._api_remaining_minute == 90
+        assert limiter._api_remaining_minute == 8
         assert limiter._api_reset_minute == 1704067200.0
         assert limiter._api_remaining_day == 9000
         assert limiter._api_reset_day == 1704153600.0
@@ -218,14 +224,14 @@ class TestRateLimiterHeaders:
         """Test updating with only some headers present."""
         limiter = RateLimiter()
 
-        # Only minute remaining
+        # Only day remaining (X-RateLimit-*)
         limiter.update_from_headers({
-            "X-RateLimit-Remaining": "50",
+            "X-RateLimit-Remaining": "9500",
         })
 
-        assert limiter._api_remaining_minute == 50
+        assert limiter._api_remaining_minute is None
         assert limiter._api_reset_minute is None
-        assert limiter._api_remaining_day is None
+        assert limiter._api_remaining_day == 9500
         assert limiter._api_reset_day is None
 
 

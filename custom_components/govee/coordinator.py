@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+import math
+import time
+from datetime import datetime, timedelta, timezone
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -13,8 +15,21 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .api import GoveeApiClient, GoveeApiError, GoveeAuthError, GoveeRateLimitError
-from .const import CONF_ENABLE_GROUP_DEVICES, DOMAIN, UNSUPPORTED_DEVICE_SKUS
+from .const import (
+    CONF_ENABLE_GROUP_DEVICES,
+    DOMAIN,
+    POLL_INTERVAL_CRITICAL,
+    POLL_INTERVAL_DANGER,
+    POLL_INTERVAL_MIN,
+    POLL_INTERVAL_WARNING,
+    QUOTA_CRITICAL,
+    QUOTA_DANGER,
+    QUOTA_OK,
+    QUOTA_WARNING,
+    UNSUPPORTED_DEVICE_SKUS,
+)
 from .models import GoveeConfigEntry, GoveeDevice, GoveeDeviceState, SceneOption
+from .mqtt import GoveeMqttClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +51,11 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
         self._scene_cache: dict[str, list[SceneOption]] = {}
         self._diy_scene_cache: dict[str, list[SceneOption]] = {}
         self._snapshot_cache: dict[str, list[SceneOption]] = {}
+        # Store user's configured interval for adaptive polling to restore later
+        self._user_interval = update_interval
+        # MQTT client for real-time device events
+        self._mqtt_client: GoveeMqttClient | None = None
+        self._mqtt_enabled = False
 
         super().__init__(
             hass,
@@ -224,6 +244,9 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
             _LOGGER.warning("State update timed out after 30s")
             raise UpdateFailed("State update timeout") from None
 
+        # Track rate limit errors to signal HA to back off
+        rate_limit_error: GoveeRateLimitError | None = None
+
         for device_id, result in results:
             device = self.devices[device_id]
 
@@ -236,6 +259,9 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                     device_id,
                     result,
                 )
+                # Capture the first rate limit error (with retry_after info)
+                if rate_limit_error is None:
+                    rate_limit_error = result
                 if self.data and device_id in self.data:
                     states[device_id] = self.data[device_id]
 
@@ -285,6 +311,19 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
                 states[device_id] = result
 
         self._check_rate_limits()
+        self._adapt_polling_interval()
+
+        # If rate limits were hit, raise UpdateFailed with retry_after
+        # This signals HA to back off and retry later using built-in mechanisms
+        if rate_limit_error is not None:
+            retry_after = rate_limit_error.retry_after or 300  # Default 5 min
+            _LOGGER.warning(
+                "Rate limit encountered during update cycle, backing off for %ds",
+                retry_after,
+            )
+            raise UpdateFailed(
+                f"Govee API rate limited, retry in {retry_after}s"
+            ) from rate_limit_error
 
         return states
 
@@ -528,6 +567,169 @@ class GoveeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceStat
     @property
     def rate_limit_remaining_minute(self) -> int:
         return self.client.rate_limiter.remaining_minute
+
+    @property
+    def mqtt_connected(self) -> bool:
+        """Return True if MQTT client is connected."""
+        return self._mqtt_client is not None and self._mqtt_client.connected
+
+    async def async_setup_mqtt(self, api_key: str) -> None:
+        """Set up MQTT subscription for real-time device events.
+
+        Connects to Govee's cloud MQTT broker to receive push notifications
+        for device events. This reduces the need for constant API polling.
+
+        Note: MQTT events only cover EVENT-type capabilities (sensors, alerts).
+        Power state and brightness changes still require polling.
+
+        Args:
+            api_key: Govee API key used for MQTT authentication.
+        """
+
+        def on_mqtt_event(event: dict) -> None:
+            """Handle MQTT event by updating device state."""
+            device_id = event.get("device")
+            if not device_id or not self.data:
+                return
+
+            if device_id in self.data:
+                # Update state from event capabilities
+                state = self.data[device_id]
+                capabilities = event.get("capabilities", [])
+                for cap in capabilities:
+                    # Process event capabilities
+                    cap_type = cap.get("type", "")
+                    instance = cap.get("instance", "")
+                    cap_state = cap.get("state", [])
+
+                    _LOGGER.debug(
+                        "Processing MQTT event for %s: %s.%s = %s",
+                        device_id,
+                        cap_type,
+                        instance,
+                        cap_state,
+                    )
+
+                    # Apply capability updates to state
+                    # Event capabilities typically contain sensor/alert data
+                    for state_item in cap_state:
+                        state.apply_mqtt_event(instance, state_item)
+
+                # Push update to all listeners (resets poll timer)
+                self.async_set_updated_data(self.data)
+                _LOGGER.debug("Updated device %s from MQTT event", device_id)
+
+        self._mqtt_client = GoveeMqttClient(api_key, on_mqtt_event)
+        await self._mqtt_client.async_start()
+        self._mqtt_enabled = True
+        _LOGGER.info("MQTT event subscription active")
+
+    async def async_stop_mqtt(self) -> None:
+        """Stop MQTT subscription.
+
+        Called during integration unload to clean up the MQTT connection.
+        """
+        if self._mqtt_client:
+            await self._mqtt_client.async_stop()
+            self._mqtt_client = None
+            self._mqtt_enabled = False
+            _LOGGER.debug("MQTT client stopped")
+
+    def _hours_until_reset(self, reset_timestamp: float | None) -> float:
+        """Calculate hours until daily quota reset."""
+        if not reset_timestamp:
+            # Assume reset at midnight UTC if not provided
+            now = datetime.now(timezone.utc)
+            midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            return (midnight - now).total_seconds() / 3600
+        return max(0, (reset_timestamp - time.time()) / 3600)
+
+    def _adapt_polling_interval(self) -> None:
+        """Dynamically adjust polling based on remaining quota.
+
+        This implements adaptive rate limiting:
+        - Monitors daily API quota from Govee rate limit headers
+        - Calculates time-aware sustainable rate based on hours until reset
+        - Applies tiered slowdown when quota gets low
+        - Restores user's configured interval when quota recovers
+        """
+        status = self.client.rate_limiter.status
+        remaining = status.remaining_day
+
+        # Calculate time-aware sustainable rate
+        hours_left = self._hours_until_reset(status.reset_day)
+        if hours_left > 0 and remaining > 0:
+            sustainable_per_hour = remaining / hours_left
+            # Calculate minimum safe interval: 3600s/hour / calls_per_hour
+            time_based_min = (
+                max(POLL_INTERVAL_MIN, int(3600 / sustainable_per_hour))
+                if sustainable_per_hour > 0
+                else POLL_INTERVAL_CRITICAL
+            )
+        else:
+            time_based_min = POLL_INTERVAL_CRITICAL
+
+        # Apply tiered slowdown based on remaining quota
+        user_seconds = self._user_interval.total_seconds()
+
+        if remaining < QUOTA_CRITICAL:
+            new_interval = max(time_based_min, POLL_INTERVAL_CRITICAL)
+            severity = "CRITICAL"
+        elif remaining < QUOTA_DANGER:
+            new_interval = max(time_based_min, POLL_INTERVAL_DANGER)
+            severity = "danger"
+        elif remaining < QUOTA_WARNING:
+            new_interval = max(time_based_min, POLL_INTERVAL_WARNING)
+            severity = "warning"
+        elif remaining < QUOTA_OK:
+            # Slightly throttled but not aggressively
+            new_interval = max(time_based_min, user_seconds, 90)
+            severity = "elevated"
+        else:
+            # Quota is healthy, use user's preferred interval
+            new_interval = user_seconds
+            severity = None
+
+        current_seconds = self.update_interval.total_seconds()
+
+        # Only log and update if interval actually changed
+        if abs(new_interval - current_seconds) >= 1:
+            self.update_interval = timedelta(seconds=new_interval)
+            if severity:
+                _LOGGER.warning(
+                    "[%s] Adjusted poll interval to %ds (quota: %d/10000, %.1fh until reset)",
+                    severity.upper(),
+                    int(new_interval),
+                    remaining,
+                    hours_left,
+                )
+            else:
+                _LOGGER.debug(
+                    "Restored poll interval to user setting: %ds (quota healthy: %d)",
+                    int(new_interval),
+                    remaining,
+                )
+
+    @staticmethod
+    def calculate_sustainable_interval(device_count: int) -> int:
+        """Calculate minimum sustainable poll interval for device count.
+
+        Formula: Ensure daily calls stay under 90% of 10,000 limit
+        At interval I: calls/day = device_count × (86400/I)
+        Solving for I: I > device_count × 86400 / 9000
+
+        Args:
+            device_count: Number of devices being polled
+
+        Returns:
+            Minimum safe poll interval in seconds
+        """
+        if device_count == 0:
+            return POLL_INTERVAL_MIN
+        min_interval = math.ceil(device_count * 86400 / 9000)
+        return max(POLL_INTERVAL_MIN, min_interval)
 
     async def async_refresh_device_scenes(self, device_id: str) -> None:
         """Refresh scene lists for a device (used by refresh scenes button)."""

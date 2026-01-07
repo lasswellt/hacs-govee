@@ -72,11 +72,16 @@ class TestAsyncSetupEntry:
             # Setup mock coordinator
             mock_coordinator = MagicMock()
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+            mock_coordinator.async_setup_mqtt = AsyncMock()
+            mock_coordinator.async_stop_mqtt = AsyncMock()
+            mock_coordinator.mqtt_connected = False
             mock_coordinator.devices = {
                 mock_device_light.device_id: mock_device_light,
                 mock_device_switch.device_id: mock_device_switch,
             }
             mock_coord_class.return_value = mock_coordinator
+            # Provide the static method for sustainable interval calculation
+            mock_coord_class.calculate_sustainable_interval = lambda x: 30
 
             result = await async_setup_entry(hass, mock_config_entry)
 
@@ -191,8 +196,13 @@ class TestAsyncSetupEntry:
 
             mock_coordinator = MagicMock()
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+            mock_coordinator.async_setup_mqtt = AsyncMock()
+            mock_coordinator.async_stop_mqtt = AsyncMock()
+            mock_coordinator.mqtt_connected = False
             mock_coordinator.devices = {}
             mock_coord_class.return_value = mock_coordinator
+            # Provide the static method for sustainable interval calculation
+            mock_coord_class.calculate_sustainable_interval = lambda x: 30
 
             await async_setup_entry(hass, entry_with_options)
 
@@ -232,8 +242,13 @@ class TestAsyncSetupEntry:
         ):
             mock_coordinator = MagicMock()
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+            mock_coordinator.async_setup_mqtt = AsyncMock()
+            mock_coordinator.async_stop_mqtt = AsyncMock()
+            mock_coordinator.mqtt_connected = False
             mock_coordinator.devices = {}
             mock_coord_class.return_value = mock_coordinator
+            # Provide the static method for sustainable interval calculation
+            mock_coord_class.calculate_sustainable_interval = lambda x: 30
 
             await async_setup_entry(hass, entry_with_custom_poll)
 
@@ -265,8 +280,13 @@ class TestAsyncSetupEntry:
         ):
             mock_coordinator = MagicMock()
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+            mock_coordinator.async_setup_mqtt = AsyncMock()
+            mock_coordinator.async_stop_mqtt = AsyncMock()
+            mock_coordinator.mqtt_connected = False
             mock_coordinator.devices = {}
             mock_coord_class.return_value = mock_coordinator
+            # Provide the static method for sustainable interval calculation
+            mock_coord_class.calculate_sustainable_interval = lambda x: 30
 
             # Mock update listener registration
             mock_config_entry.add_update_listener = MagicMock(return_value=MagicMock())
@@ -276,7 +296,8 @@ class TestAsyncSetupEntry:
 
             # Should register update listener
             mock_config_entry.add_update_listener.assert_called_once()
-            mock_config_entry.async_on_unload.assert_called_once()
+            # async_on_unload is called twice now (MQTT cleanup + update listener)
+            assert mock_config_entry.async_on_unload.call_count == 2
 
 
 class TestAsyncUnloadEntry:
@@ -343,20 +364,57 @@ class TestAsyncOptionsUpdated:
     """Test async_options_updated function."""
 
     @pytest.mark.asyncio
-    async def test_options_updated_reloads_entry(
+    async def test_options_updated_reloads_entry_on_api_key_change(
+        self,
+        hass: HomeAssistant,
+    ):
+        """Test options update triggers reload when API key changes."""
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        # Entry with new API key in options
+        entry_with_new_key = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_API_KEY: "old_key"},
+            options={CONF_API_KEY: "new_key"},
+        )
+
+        with patch.object(
+            hass.config_entries,
+            "async_reload",
+        ) as mock_reload:
+            await async_options_updated(hass, entry_with_new_key)
+
+            # Should reload entry when API key changed
+            mock_reload.assert_called_once_with(entry_with_new_key.entry_id)
+
+    @pytest.mark.asyncio
+    async def test_options_updated_does_not_reload_for_poll_interval_change(
         self,
         hass: HomeAssistant,
         mock_config_entry,
+        mock_coordinator,
     ):
-        """Test options update triggers reload."""
+        """Test options update does NOT reload when only poll interval changes.
+
+        Poll interval changes are now applied dynamically without restart.
+        """
+        # Setup runtime_data with coordinator
+        mock_config_entry.runtime_data = GoveeRuntimeData(
+            client=MagicMock(),
+            coordinator=mock_coordinator,
+            devices={},
+        )
+        mock_coordinator._user_interval = timedelta(seconds=60)
+        mock_coordinator.update_interval = timedelta(seconds=60)
+
         with patch.object(
             hass.config_entries,
             "async_reload",
         ) as mock_reload:
             await async_options_updated(hass, mock_config_entry)
 
-            # Should reload entry
-            mock_reload.assert_called_once_with(mock_config_entry.entry_id)
+            # Should NOT reload entry for poll interval change
+            mock_reload.assert_not_called()
 
 
 class TestAsyncMigrateEntry:
@@ -479,8 +537,13 @@ class TestIntegrationLifecycle:
         ):
             mock_coordinator = MagicMock()
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+            mock_coordinator.async_setup_mqtt = AsyncMock()
+            mock_coordinator.async_stop_mqtt = AsyncMock()
+            mock_coordinator.mqtt_connected = False
             mock_coordinator.devices = {mock_device_light.device_id: mock_device_light}
             mock_coord_class.return_value = mock_coordinator
+            # Provide the static method for sustainable interval calculation
+            mock_coord_class.calculate_sustainable_interval = lambda x: 30
 
             # Setup entry
             setup_result = await async_setup_entry(hass, mock_config_entry)

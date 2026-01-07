@@ -52,6 +52,9 @@ class GoveeDeviceState:
     fan_speed: int | None = None
     mode: str | None = None
 
+    # MQTT event data storage (for sensor devices with event capabilities)
+    mqtt_events: dict[str, dict] | None = None
+
     @classmethod
     def from_api(cls, device_id: str, data: dict[str, Any]) -> GoveeDeviceState:
         state = cls(device_id=device_id)
@@ -121,6 +124,7 @@ class GoveeDeviceState:
             temperature=other.temperature,
             fan_speed=other.fan_speed,
             mode=other.mode,
+            mqtt_events=dict(other.mqtt_events) if other.mqtt_events else None,
         )
 
     def update_from_api(self, data: dict[str, Any]) -> None:
@@ -232,3 +236,33 @@ class GoveeDeviceState:
         """Called when main light changes override individual segment colors."""
         self.segment_colors = None
         self.segment_brightness = None
+
+    def apply_mqtt_event(self, instance: str, state_item: dict[str, Any]) -> None:
+        """Apply state update from MQTT event.
+
+        MQTT events contain sensor/alert data for devices with event capabilities.
+        These are typically presence sensors, ice makers, dehumidifiers, etc.
+
+        Args:
+            instance: The capability instance (e.g., "lackWaterEvent", "bodyAppearedEvent")
+            state_item: State item dict with "name", "value", and optionally "message"
+
+        Example event state_item:
+            {"name": "lack", "value": 1, "message": "Lack of Water"}
+        """
+        # MQTT events are primarily for sensor devices (presence, alerts, etc.)
+        # The event structure is different from REST API state
+        name = state_item.get("name")
+        value = state_item.get("value")
+
+        # Initialize mqtt_events dict if needed
+        if self.mqtt_events is None:
+            self.mqtt_events = {}
+
+        # Store the event keyed by instance for entity access
+        self.mqtt_events[instance] = {
+            "name": name,
+            "value": value,
+            "message": state_item.get("message"),
+            "timestamp": time.time(),
+        }

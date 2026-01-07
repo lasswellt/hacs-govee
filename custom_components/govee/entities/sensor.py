@@ -28,11 +28,13 @@ class GoveeRateLimitSensor(SensorEntity):
         return self._coordinator.last_update_success
 
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> int | str | None:
         if self.entity_description.key == "rate_limit_remaining_minute":
             return self._coordinator.rate_limit_remaining_minute
         elif self.entity_description.key == "rate_limit_remaining_day":
             return self._coordinator.rate_limit_remaining
+        elif self.entity_description.key == "mqtt_status":
+            return "Connected" if self._coordinator.mqtt_connected else "Disconnected"
         return None
 
     async def async_added_to_hass(self) -> None:

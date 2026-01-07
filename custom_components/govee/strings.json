@@ -74,6 +74,9 @@
       },
       "rate_limit_remaining_day": {
         "name": "API Rate Limit (Day)"
+      },
+      "mqtt_status": {
+        "name": "MQTT Status"
       }
     },
     "button": {

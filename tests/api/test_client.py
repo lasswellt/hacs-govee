@@ -144,36 +144,41 @@ class TestRateLimiter:
         assert len(limiter._day_timestamps) == 1  # Only new one
 
     def test_update_from_headers_all_headers(self):
-        """Test update_from_headers() with all rate limit headers."""
+        """Test update_from_headers() with all rate limit headers.
+
+        Per Govee API docs:
+        - API-RateLimit-* headers: Per-minute limits (10/min per device)
+        - X-RateLimit-* headers: Per-day limits (10,000/day global)
+        """
         limiter = RateLimiter()
 
         headers = {
-            HEADER_RATE_LIMIT_REMAINING: "95",
-            HEADER_RATE_LIMIT_RESET: "1234567890.5",
-            HEADER_API_RATE_LIMIT_REMAINING: "9500",
-            HEADER_API_RATE_LIMIT_RESET: "1234567900.0",
+            HEADER_API_RATE_LIMIT_REMAINING: "8",  # Per-minute
+            HEADER_API_RATE_LIMIT_RESET: "1234567890.5",
+            HEADER_RATE_LIMIT_REMAINING: "9500",  # Per-day
+            HEADER_RATE_LIMIT_RESET: "1234567900.0",
         }
 
         limiter.update_from_headers(headers)
 
-        assert limiter._api_remaining_minute == 95
+        assert limiter._api_remaining_minute == 8
         assert limiter._api_reset_minute == 1234567890.5
         assert limiter._api_remaining_day == 9500
         assert limiter._api_reset_day == 1234567900.0
 
     def test_update_from_headers_partial(self):
-        """Test update_from_headers() with partial headers."""
+        """Test update_from_headers() with partial headers (day only)."""
         limiter = RateLimiter()
 
         headers = {
-            HEADER_RATE_LIMIT_REMAINING: "80",
+            HEADER_RATE_LIMIT_REMAINING: "9000",  # Per-day (X-RateLimit-*)
         }
 
         limiter.update_from_headers(headers)
 
-        assert limiter._api_remaining_minute == 80
+        assert limiter._api_remaining_minute is None
         assert limiter._api_reset_minute is None
-        assert limiter._api_remaining_day is None
+        assert limiter._api_remaining_day == 9000
         assert limiter._api_reset_day is None
 
     def test_remaining_minute_with_api_value(self):

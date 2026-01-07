@@ -33,4 +33,11 @@ SENSOR_DESCRIPTIONS: dict[str, GoveeSensorEntityDescription] = {
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:calendar-clock",
     ),
+    "mqtt_status": GoveeSensorEntityDescription(
+        key="mqtt_status",
+        translation_key="mqtt_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=True,
+        icon="mdi:connection",
+    ),
 }

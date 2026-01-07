@@ -15,7 +15,27 @@ API_BRIGHTNESS_MAX = 100
 COLOR_TEMP_KELVIN_MIN = 2000
 COLOR_TEMP_KELVIN_MAX = 9000
 
-DEFAULT_POLL_INTERVAL = 30
+DEFAULT_POLL_INTERVAL = 60  # Increased from 30 to reduce API usage
+
+# Adaptive polling thresholds based on daily quota (10,000/day)
+# When remaining quota falls below these, polling interval is increased
+QUOTA_CRITICAL = 100     # Emergency: 10 min polling
+QUOTA_DANGER = 500       # Danger: 5 min polling
+QUOTA_WARNING = 2000     # Warning: 2 min polling
+QUOTA_OK = 5000          # OK: User's configured interval
+
+# Polling interval limits for adaptive polling (in seconds)
+POLL_INTERVAL_MIN = 30
+POLL_INTERVAL_CRITICAL = 600   # 10 minutes
+POLL_INTERVAL_DANGER = 300     # 5 minutes
+POLL_INTERVAL_WARNING = 120    # 2 minutes
+
+# MQTT Configuration for real-time device events
+MQTT_BROKER = "mqtt.openapi.govee.com"
+MQTT_PORT = 8883
+MQTT_KEEPALIVE = 120  # seconds
+MQTT_RECONNECT_BASE = 5  # Base reconnect interval in seconds
+MQTT_RECONNECT_MAX = 300  # Max reconnect interval (5 minutes)
 
 DEVICE_TYPE_LIGHT = "devices.types.light"
 DEVICE_TYPE_SOCKET = "devices.types.socket"

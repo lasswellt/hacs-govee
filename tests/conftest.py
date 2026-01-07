@@ -23,6 +23,7 @@ from custom_components.govee.models import (
     DeviceCapability,
     CapabilityParameter,
 )
+from custom_components.govee.api.rate_limiter import RateLimitStatus
 
 
 # ==============================================================================
@@ -345,6 +346,16 @@ def mock_api_client() -> MagicMock:
     client.rate_limiter.remaining_day = 10000
     client.rate_limiter.reset_minute = 60
     client.rate_limiter.reset_day = 86400
+    # Mock status property for adaptive polling
+    client.rate_limiter.status = RateLimitStatus(
+        remaining_minute=100,
+        remaining_day=10000,
+        reset_minute=None,
+        reset_day=None,
+        is_limited=False,
+        wait_time=None,
+        consecutive_failures=0,
+    )
 
     return client
 
@@ -399,6 +410,10 @@ def mock_coordinator(
     coordinator.async_request_refresh = AsyncMock()
     coordinator.get_state = MagicMock(return_value=None)
     coordinator.set_optimistic_state = MagicMock()
+    # MQTT-related mocks
+    coordinator.async_setup_mqtt = AsyncMock()
+    coordinator.async_stop_mqtt = AsyncMock()
+    coordinator.mqtt_connected = False
 
     return coordinator
 
