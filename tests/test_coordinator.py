@@ -2467,7 +2467,6 @@ class TestAdaptivePolling:
         """Test polling interval adjustment at danger quota level."""
         from custom_components.govee.const import (
             POLL_INTERVAL_DANGER,
-            QUOTA_DANGER,
             QUOTA_CRITICAL,
         )
         from custom_components.govee.api.rate_limiter import RateLimitStatus
@@ -2504,7 +2503,6 @@ class TestAdaptivePolling:
         """Test polling interval adjustment at warning quota level."""
         from custom_components.govee.const import (
             POLL_INTERVAL_WARNING,
-            QUOTA_WARNING,
             QUOTA_DANGER,
         )
         from custom_components.govee.api.rate_limiter import RateLimitStatus
@@ -2539,7 +2537,7 @@ class TestAdaptivePolling:
         mock_api_client,
     ):
         """Test polling interval at elevated (between warning and OK) level."""
-        from custom_components.govee.const import QUOTA_OK, QUOTA_WARNING
+        from custom_components.govee.const import QUOTA_WARNING
         from custom_components.govee.api.rate_limiter import RateLimitStatus
 
         coordinator = GoveeDataUpdateCoordinator(

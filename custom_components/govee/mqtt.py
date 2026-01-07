@@ -28,7 +28,7 @@ from .const import (
 )
 
 if TYPE_CHECKING:
-    import aiomqtt
+    import aiomqtt  # type: ignore[import-not-found,unused-ignore]
 
 _LOGGER = logging.getLogger(__name__)
 

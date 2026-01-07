@@ -2,22 +2,15 @@
 from __future__ import annotations
 
 import time
-import pytest
 
 from custom_components.govee.models.state import GoveeDeviceState
 from custom_components.govee.api.const import (
-    INSTANCE_BRIGHTNESS,
-    INSTANCE_COLOR_RGB,
-    INSTANCE_COLOR_TEMP,
-    INSTANCE_DIY_SCENE,
-    INSTANCE_LIGHT_SCENE,
     INSTANCE_NIGHTLIGHT_TOGGLE,
     INSTANCE_OSCILLATION_TOGGLE,
     INSTANCE_THERMOSTAT_TOGGLE,
     INSTANCE_GRADIENT_TOGGLE,
     INSTANCE_WARM_MIST_TOGGLE,
     INSTANCE_AIR_DEFLECTOR_TOGGLE,
-    INSTANCE_POWER_SWITCH,
     INSTANCE_SNAPSHOT,
 )
 

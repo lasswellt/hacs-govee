@@ -53,7 +53,7 @@ class TestGoveeMqttClientStartStop:
         # Mock the connection loop to prevent actual connection
         with patch.object(
             client, "_connection_loop", new_callable=AsyncMock
-        ) as mock_loop:
+        ):
             await client.async_start()
 
             assert client._running is True
