@@ -142,6 +142,14 @@ class GoveeSegmentLight(GoveeEntity, LightEntity, RestoreEntity):
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
+        # Skip if already off to avoid unnecessary API calls
+        if self._optimistic_on is False or self._optimistic_rgb == (0, 0, 0):
+            _LOGGER.debug(
+                "Segment %d already off, skipping turn_off command",
+                self._segment_index,
+            )
+            return
+
         await self.coordinator.async_set_segment_color(
             self._device.device_id,
             self._device.sku,
