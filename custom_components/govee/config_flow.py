@@ -287,6 +287,11 @@ class GoveeOptionsFlow(config_entries.OptionsFlow):
                     await validate_govee_credentials(new_email, new_password, session)
                 except GoveeAuthError:
                     errors["base"] = "invalid_auth"
+                except GoveeApiError as err:
+                    # "Missing IoT credentials" means login succeeded but IoT isn't enabled
+                    # This is not an error - just means MQTT won't be available
+                    if "IoT" not in str(err):
+                        _LOGGER.warning("Govee API error during validation: %s", err)
                 except Exception:
                     pass  # Non-critical, MQTT just won't work
 
