@@ -6,42 +6,52 @@
       "reauth_successful": "Re-authentication successful"
     },
     "error": {
-      "cannot_connect": "Cannot connect. Is the API-Key correct and the internet connection working?",
-      "unknown": "Unknown Error."
+      "cannot_connect": "Cannot connect. Check your API key and internet connection.",
+      "invalid_api_key": "Invalid API key. Get your key from the Govee Home app.",
+      "invalid_credentials": "Invalid email or password for Govee account.",
+      "unknown": "Unknown error occurred."
     },
     "step": {
       "user": {
         "data": {
           "api_key": "API Key",
-          "delay": "Poll Interval"
+          "email": "Govee Email (optional)",
+          "password": "Govee Password (optional)",
+          "poll_interval": "Poll Interval"
         },
-        "description": "Get your API key from the Govee Home app: Profile → Settings → About Us → Apply for API Key"
+        "data_description": {
+          "api_key": "Get from Govee Home app: Profile → Settings → About Us → Apply for API Key",
+          "email": "Optional: Enables real-time updates via AWS IoT MQTT",
+          "password": "Required if email is provided",
+          "poll_interval": "Seconds between state updates (30-300)"
+        },
+        "description": "Configure your Govee integration. Email/password is optional but enables real-time state updates."
       },
       "reauth_confirm": {
         "data": {
-          "api_key": "API Key"
+          "api_key": "API Key",
+          "password": "Govee Password"
+        },
+        "data_description": {
+          "api_key": "Your new Govee API key",
+          "password": "Update password for real-time updates (account: {email})"
         },
         "title": "Re-authenticate Govee",
-        "description": "Your API key is no longer valid. Please enter a new API key."
+        "description": "Your credentials are no longer valid. Please enter new credentials."
       }
     }
   },
   "options": {
-    "error": {
-      "cannot_connect": "Cannot connect. Is the API-Key correct and the internet connection working?",
-      "unknown": "Unknown Error."
-    },
     "step": {
-      "user": {
+      "init": {
         "data": {
-          "api_key": "API Key (requires restart)",
-          "delay": "Poll Interval in seconds (requires restart)",
-          "use_assumed_state": "Use assumed state (shows separate on/off buttons)",
-          "offline_is_off": "Show offline devices as off",
-          "enable_group_devices": "Enable group devices (experimental)"
+          "poll_interval": "Poll Interval (seconds)"
         },
-        "title": "Options",
-        "description": "Configure the Govee integration. For details, see the [README](https://github.com/LaggAt/hacs-govee/blob/master/README.md)."
+        "data_description": {
+          "poll_interval": "Time between state updates. Lower = more API calls, higher = less responsive."
+        },
+        "title": "Govee Options",
+        "description": "Configure poll interval. To change API key or credentials, use the reconfigure option."
       }
     }
   },
@@ -128,19 +138,11 @@
   "issues": {
     "group_device_limitation": {
       "title": "Group Device Has Limited API Support",
-      "description": "The device **{device_name}** is a Govee Home app group device (SameModeGroup, BaseGroup, or DreamViewScenic).\n\nThese group devices have **experimental support** in this integration:\n- Control commands work (on/off, brightness, color, scenes)\n- State queries fail - device will use optimistic state tracking\n- Device shows as available even when state cannot be queried\n\nThis is a limitation of the Govee cloud API. Group devices created in the Govee Home app do not support state queries via the API.\n\n**Recommendation:** If you need accurate state feedback, control individual devices instead of groups."
-    },
-    "rate_limit_minute_warning": {
-      "title": "Approaching Per-Minute Rate Limit",
-      "description": "Your Govee integration is approaching the API rate limit.\n\n**Current status:** {remaining} requests remaining this minute (limit: 100/minute)\n\n**What this means:**\n- If the limit is exceeded, API requests will be delayed automatically\n- You may experience slower response times\n\n**Recommended actions:**\n- Increase the poll interval in integration options\n- Reduce the number of devices being polled\n- Avoid excessive manual refresh operations\n\nThis warning will clear automatically when the rate limit resets."
-    },
-    "rate_limit_day_warning": {
-      "title": "Approaching Daily Rate Limit",
-      "description": "Your Govee integration is approaching the daily API rate limit.\n\n**Current status:** {remaining} requests remaining today (limit: 10,000/day)\n\n**What this means:**\n- If the daily limit is exceeded, API requests may fail\n- The integration may stop updating device states\n\n**Recommended actions:**\n- **Immediately increase** the poll interval in integration options (recommended: 60+ seconds)\n- Consider reducing the number of devices\n- The daily limit resets at midnight UTC\n\nThis warning will clear automatically when the rate limit resets."
+      "description": "The device **{device_name}** is a Govee Home app group device.\n\nThese devices have **limited support**:\n- Control commands work (on/off, brightness, color)\n- State queries fail - uses optimistic state tracking\n\nThis is a Govee API limitation. For accurate state, control individual devices."
     },
     "auth_failed": {
       "title": "Govee Authentication Failed",
-      "description": "The Govee API key is no longer valid.\n\n**What this means:**\n- The integration cannot communicate with Govee servers\n- Device control and state updates will not work\n\n**How to fix:**\n1. Go to Settings → Devices & Services → Govee\n2. Click 'Configure' or 'Reconfigure'\n3. Enter a new valid API key\n\n**Getting a new API key:**\n1. Open the Govee Home app\n2. Go to Profile → Settings → About Us → Apply for API Key"
+      "description": "The Govee API key is no longer valid.\n\n**How to fix:**\n1. Go to Settings → Devices & Services → Govee\n2. Click 'Reconfigure'\n3. Enter a valid API key"
     }
   },
   "services": {
@@ -171,32 +173,6 @@
           "description": "Brightness percentage (0-100)."
         }
       }
-    },
-    "set_music_mode": {
-      "name": "Set Music Mode",
-      "description": "Activate music reactive mode on a Govee light.",
-      "fields": {
-        "mode": {
-          "name": "Mode",
-          "description": "Music mode name."
-        },
-        "sensitivity": {
-          "name": "Sensitivity",
-          "description": "Microphone sensitivity (0-100)."
-        },
-        "auto_color": {
-          "name": "Auto Color",
-          "description": "Enable automatic color changes."
-        },
-        "rgb_color": {
-          "name": "Fixed Color",
-          "description": "Fixed color when auto_color is disabled."
-        }
-      }
-    },
-    "refresh_scenes": {
-      "name": "Refresh Scenes",
-      "description": "Refresh the scene list from Govee cloud."
     }
   }
 }

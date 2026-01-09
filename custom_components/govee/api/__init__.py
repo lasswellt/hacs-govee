@@ -1,29 +1,8 @@
+"""Govee API client."""
 from __future__ import annotations
 
+from .auth import GoveeAuthClient, GoveeIotCredentials, validate_govee_credentials
 from .client import GoveeApiClient
-from .rate_limiter import RateLimiter, RateLimitStatus
-from .const import (
-    BASE_URL,
-    BRIGHTNESS_MAX,
-    BRIGHTNESS_MIN,
-    CAPABILITY_COLOR_SETTING,
-    CAPABILITY_DYNAMIC_SCENE,
-    CAPABILITY_MUSIC_SETTING,
-    CAPABILITY_ON_OFF,
-    CAPABILITY_RANGE,
-    CAPABILITY_SEGMENT_COLOR,
-    COLOR_TEMP_MAX,
-    COLOR_TEMP_MIN,
-    INSTANCE_BRIGHTNESS,
-    INSTANCE_COLOR_RGB,
-    INSTANCE_COLOR_TEMP,
-    INSTANCE_DIY_SCENE,
-    INSTANCE_LIGHT_SCENE,
-    INSTANCE_MUSIC_MODE,
-    INSTANCE_POWER_SWITCH,
-    INSTANCE_SEGMENTED_BRIGHTNESS,
-    INSTANCE_SEGMENTED_COLOR,
-)
 from .exceptions import (
     GoveeApiError,
     GoveeAuthError,
@@ -33,30 +12,11 @@ from .exceptions import (
 
 __all__ = [
     "GoveeApiClient",
-    "RateLimiter",
-    "RateLimitStatus",
+    "GoveeAuthClient",
+    "GoveeIotCredentials",
+    "validate_govee_credentials",
     "GoveeApiError",
     "GoveeAuthError",
     "GoveeConnectionError",
     "GoveeRateLimitError",
-    "BASE_URL",
-    "CAPABILITY_COLOR_SETTING",
-    "CAPABILITY_DYNAMIC_SCENE",
-    "CAPABILITY_MUSIC_SETTING",
-    "CAPABILITY_ON_OFF",
-    "CAPABILITY_RANGE",
-    "CAPABILITY_SEGMENT_COLOR",
-    "INSTANCE_BRIGHTNESS",
-    "INSTANCE_COLOR_RGB",
-    "INSTANCE_COLOR_TEMP",
-    "INSTANCE_DIY_SCENE",
-    "INSTANCE_LIGHT_SCENE",
-    "INSTANCE_MUSIC_MODE",
-    "INSTANCE_POWER_SWITCH",
-    "INSTANCE_SEGMENTED_BRIGHTNESS",
-    "INSTANCE_SEGMENTED_COLOR",
-    "BRIGHTNESS_MAX",
-    "BRIGHTNESS_MIN",
-    "COLOR_TEMP_MAX",
-    "COLOR_TEMP_MIN",
 ]

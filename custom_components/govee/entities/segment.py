@@ -1,11 +1,14 @@
-"""Govee segment light entities for RGBIC device control."""
+"""Govee segment light entity with optimistic state.
 
+Segment state is NEVER returned by the Govee API (validated via live testing).
+This entity uses fully optimistic state with RestoreEntity for persistence.
+"""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from homeassistant.components.light import (  # type: ignore[attr-defined]
+from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_RGB_COLOR,
     ColorMode,
@@ -13,29 +16,29 @@ from homeassistant.components.light import (  # type: ignore[attr-defined]
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from ..api.const import (
-    CAPABILITY_SEGMENT_COLOR,
-    INSTANCE_SEGMENTED_BRIGHTNESS,
-    INSTANCE_SEGMENTED_COLOR,
-)
-from ..const import CONF_INTER_COMMAND_DELAY, DEFAULT_INTER_COMMAND_DELAY
-from ..coordinator import CommandBatch, GoveeDataUpdateCoordinator
-from ..entity_descriptions import SEGMENT_LIGHT_DESCRIPTION
+from ..coordinator import GoveeCoordinator
 from ..models import GoveeDevice
-from .base import GoveeEntity
+from .base import DOMAIN, GoveeEntity
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class GoveeSegmentLight(GoveeEntity, LightEntity, RestoreEntity):
-    """Light entity for individual RGBIC device segment with optimistic state tracking."""
+    """Segment light with optimistic state.
+
+    API never returns segment state, so this entity:
+    - Uses optimistic state tracking
+    - Persists state across restarts via RestoreEntity
+    - Shows assumed_state = True in UI
+    """
 
     _attr_color_mode = ColorMode.RGB
     _attr_supported_color_modes = {ColorMode.RGB}
+    _attr_assumed_state = True  # Critical: Tell HA this is assumed
 
     def __init__(
         self,
-        coordinator: GoveeDataUpdateCoordinator,
+        coordinator: GoveeCoordinator,
         device: GoveeDevice,
         segment_index: int,
     ) -> None:
@@ -43,130 +46,100 @@ class GoveeSegmentLight(GoveeEntity, LightEntity, RestoreEntity):
 
         self._segment_index = segment_index
         self._attr_unique_id = f"{device.device_id}_segment_{segment_index}"
-        self.entity_description = SEGMENT_LIGHT_DESCRIPTION
-        self._attr_translation_placeholders = {"segment_number": str(segment_index + 1)}
+        self._attr_name = f"Segment {segment_index + 1}"
 
-        self._optimistic_on: bool | None = None
-        self._optimistic_brightness: int | None = None
-        self._optimistic_rgb: tuple[int, int, int] | None = None
+        # Optimistic state (API never returns this)
+        self._is_on: bool = False
+        self._brightness: int = 255  # HA scale 0-255
+        self._rgb_color: tuple[int, int, int] = (255, 255, 255)
 
     async def async_added_to_hass(self) -> None:
+        """Restore state when added to hass."""
         await super().async_added_to_hass()
 
         if (last_state := await self.async_get_last_state()) is not None:
-            self._optimistic_on = last_state.state == "on"
+            self._is_on = last_state.state == "on"
 
             if (brightness := last_state.attributes.get(ATTR_BRIGHTNESS)) is not None:
-                self._optimistic_brightness = int(brightness)
+                self._brightness = int(brightness)
 
             if (rgb := last_state.attributes.get(ATTR_RGB_COLOR)) is not None:
-                rgb_list = list(rgb)
-                self._optimistic_rgb = (rgb_list[0], rgb_list[1], rgb_list[2])
+                self._rgb_color = tuple(rgb)  # type: ignore[arg-type]
 
             _LOGGER.debug(
                 "Restored segment %d state: on=%s, brightness=%s, rgb=%s",
                 self._segment_index,
-                self._optimistic_on,
-                self._optimistic_brightness,
-                self._optimistic_rgb,
+                self._is_on,
+                self._brightness,
+                self._rgb_color,
             )
 
     @property
-    def is_on(self) -> bool | None:
-        if self._optimistic_on is not None:
-            return self._optimistic_on
-        return None
+    def is_on(self) -> bool:
+        """Return true if segment is on."""
+        return self._is_on
 
     @property
-    def brightness(self) -> int | None:
-        return self._optimistic_brightness
+    def brightness(self) -> int:
+        """Return brightness (0-255)."""
+        return self._brightness
 
     @property
-    def rgb_color(self) -> tuple[int, int, int] | None:
-        return self._optimistic_rgb
-
-    @property
-    def assumed_state(self) -> bool:
-        return True
+    def rgb_color(self) -> tuple[int, int, int]:
+        """Return RGB color."""
+        return self._rgb_color
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on the segment with batched command execution.
+        """Turn on the segment.
 
-        Commands are batched and executed with delays to prevent flickering.
-        Order: Color FIRST → Brightness LAST (validated best practice)
+        Sets segment color via API and updates optimistic state.
         """
-        rgb_color: tuple[int, int, int] | None = kwargs.get(ATTR_RGB_COLOR)
-        brightness: int | None = kwargs.get(ATTR_BRIGHTNESS)
-
-        if rgb_color is not None:
-            target_rgb = rgb_color
-        elif self._optimistic_rgb is not None and self._optimistic_rgb != (0, 0, 0):
-            target_rgb = self._optimistic_rgb
+        # Determine target RGB color
+        if ATTR_RGB_COLOR in kwargs:
+            target_rgb = kwargs[ATTR_RGB_COLOR]
+        elif self._rgb_color != (0, 0, 0):
+            target_rgb = self._rgb_color
         else:
-            target_rgb = (255, 255, 255)
+            target_rgb = (255, 255, 255)  # Default to white
 
-        batch = CommandBatch(device_id=self._device.device_id)
-
-        # VALIDATED ORDER: Color FIRST → Brightness LAST
-        r, g, b = target_rgb
-        batch.add(
-            CAPABILITY_SEGMENT_COLOR,
-            INSTANCE_SEGMENTED_COLOR,
-            {"segment": [self._segment_index], "rgb": (r << 16) + (g << 8) + b},
+        # Send color command to API
+        await self.coordinator.async_set_segment_color(
+            self._device_id,
+            self._segment_index,
+            target_rgb,
         )
 
-        if brightness is not None:
-            brightness_percent = round((brightness / 255.0) * 100)
-            batch.add(
-                CAPABILITY_SEGMENT_COLOR,
-                INSTANCE_SEGMENTED_BRIGHTNESS,
-                {"segment": [self._segment_index], "brightness": brightness_percent},
+        # Update optimistic state
+        self._is_on = True
+        self._rgb_color = target_rgb
+
+        # Handle brightness if provided
+        if ATTR_BRIGHTNESS in kwargs:
+            brightness = kwargs[ATTR_BRIGHTNESS]
+            # Convert HA 0-255 to API 0-100 (use round to avoid truncation errors)
+            api_brightness = round(brightness * 100 / 255)
+            await self.coordinator.async_set_segment_brightness(
+                self._device_id,
+                self._segment_index,
+                api_brightness,
             )
-            self._optimistic_brightness = brightness
-
-        # Update optimistic state before batch execution
-        self._optimistic_on = True
-        self._optimistic_rgb = target_rgb
-
-        # Get configurable delay from options (default 500ms)
-        delay_ms = self.coordinator.config_entry.options.get(
-            CONF_INTER_COMMAND_DELAY, DEFAULT_INTER_COMMAND_DELAY
-        )
-        await self.coordinator.async_execute_batch(
-            self._device.device_id, batch, delay_ms / 1000.0
-        )
-
-        if self.device_state is not None:
-            self.device_state.apply_segment_update(self._segment_index, target_rgb)
+            self._brightness = brightness
 
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        # Skip if already off to avoid unnecessary API calls
-        if self._optimistic_on is False or self._optimistic_rgb == (0, 0, 0):
-            _LOGGER.debug(
-                "Segment %d already off, skipping turn_off command",
-                self._segment_index,
-            )
+        """Turn off the segment by setting to black."""
+        # Skip if already off
+        if not self._is_on and self._rgb_color == (0, 0, 0):
+            _LOGGER.debug("Segment %d already off, skipping", self._segment_index)
             return
 
         await self.coordinator.async_set_segment_color(
-            self._device.device_id,
-            self._device.sku,
+            self._device_id,
             self._segment_index,
             (0, 0, 0),
         )
 
-        self._optimistic_on = False
-        self._optimistic_rgb = (0, 0, 0)
-
-        if self.device_state is not None:
-            self.device_state.apply_segment_update(self._segment_index, (0, 0, 0))
-
-        self.async_write_ha_state()
-
-    def clear_segment_state(self) -> None:
-        self._optimistic_on = None
-        self._optimistic_brightness = None
-        self._optimistic_rgb = None
+        self._is_on = False
+        self._rgb_color = (0, 0, 0)
         self.async_write_ha_state()

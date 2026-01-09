@@ -1,3 +1,4 @@
+"""Light platform for Govee integration."""
 from __future__ import annotations
 
 import logging
@@ -6,11 +7,8 @@ from homeassistant.components.light import LightEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import GoveeConfigEntry
-from .const import DEVICE_TYPE_LIGHT
-from .entities import GoveeLightEntity
-from .entities.segment import GoveeSegmentLight
-from .services import async_setup_services
+from .models import GoveeConfigEntry
+from .entities import GoveeLightEntity, GoveeSegmentLight
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +20,7 @@ async def async_setup_entry(
     entry: GoveeConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up Govee light entities."""
     coordinator = entry.runtime_data.coordinator
     devices = entry.runtime_data.devices
 
@@ -29,16 +28,17 @@ async def async_setup_entry(
     segment_count_total = 0
 
     for device in devices.values():
-        if device.device_type == DEVICE_TYPE_LIGHT or device.supports_on_off:
-            entities.append(GoveeLightEntity(coordinator, device, entry))
+        # Add main light entity for all light-type devices
+        if device.is_light:
+            entities.append(GoveeLightEntity(coordinator, device))
 
+            # Add segment entities if device supports segments
             if device.supports_segments:
-                segment_count = device.get_segment_count()
+                segment_count = device.segment_count
 
                 if segment_count > MAX_SEGMENTS_WARNING:
                     _LOGGER.warning(
-                        "Device %s (%s) reports %d segments, which is unusually high. "
-                        "Creating all segment entities anyway.",
+                        "Device %s (%s) reports %d segments - unusually high",
                         device.device_name,
                         device.sku,
                         segment_count,
@@ -46,27 +46,21 @@ async def async_setup_entry(
 
                 for segment_index in range(segment_count):
                     entities.append(
-                        GoveeSegmentLight(
-                            coordinator,
-                            device,
-                            segment_index,
-                        )
+                        GoveeSegmentLight(coordinator, device, segment_index)
                     )
 
                 segment_count_total += segment_count
                 _LOGGER.debug(
-                    "Created %d segment entities for device %s (%s)",
+                    "Created %d segment entities for %s",
                     segment_count,
                     device.device_name,
-                    device.sku,
                 )
 
-    _LOGGER.debug(
-        "Adding %d light entities (%d main lights, %d segments)",
+    _LOGGER.info(
+        "Adding %d light entities (%d main, %d segments)",
         len(entities),
         len(entities) - segment_count_total,
         segment_count_total,
     )
-    async_add_entities(entities)
 
-    await async_setup_services(hass)
+    async_add_entities(entities)

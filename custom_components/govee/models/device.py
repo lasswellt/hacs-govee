@@ -1,176 +1,121 @@
+"""Govee device model."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..api.const import (
-    CAPABILITY_COLOR_SETTING,
-    CAPABILITY_DYNAMIC_SCENE,
-    CAPABILITY_MUSIC_SETTING,
-    CAPABILITY_ON_OFF,
-    CAPABILITY_RANGE,
-    CAPABILITY_SEGMENT_COLOR,
-    CAPABILITY_TOGGLE,
-    INSTANCE_AIR_DEFLECTOR_TOGGLE,
-    INSTANCE_BRIGHTNESS,
-    INSTANCE_COLOR_RGB,
-    INSTANCE_COLOR_TEMP,
-    INSTANCE_DIY_SCENE,
-    INSTANCE_GRADIENT_TOGGLE,
-    INSTANCE_LIGHT_SCENE,
-    INSTANCE_MUSIC_MODE,
-    INSTANCE_NIGHTLIGHT_TOGGLE,
-    INSTANCE_OSCILLATION_TOGGLE,
-    INSTANCE_POWER_SWITCH,
-    INSTANCE_SEGMENTED_COLOR,
-    INSTANCE_SNAPSHOT,
-    INSTANCE_THERMOSTAT_TOGGLE,
-    INSTANCE_WARM_MIST_TOGGLE,
-)
-from .capability import DeviceCapability
+UNSUPPORTED_SKUS = {"SameModeGroup", "BaseGroup", "DreamViewScenic"}
 
 
 @dataclass
 class GoveeDevice:
+    """Govee device metadata from API."""
+
     device_id: str
     sku: str
     device_name: str
     device_type: str
-    capabilities: list[DeviceCapability] = field(default_factory=list)
+    capabilities: list[dict[str, Any]] = field(default_factory=list)
     firmware_version: str | None = None
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> GoveeDevice:
-        capabilities = [
-            DeviceCapability.from_api(cap) for cap in data.get("capabilities", [])
-        ]
-
+        """Create device from API response."""
         return cls(
             device_id=data.get("device", ""),
             sku=data.get("sku", ""),
-            device_name=data.get("deviceName", data.get("device", "")),
+            device_name=data.get("deviceName", data.get("device", "Unknown")),
             device_type=data.get("type", ""),
-            capabilities=capabilities,
+            capabilities=data.get("capabilities", []),
             firmware_version=data.get("version"),
         )
 
-    def has_capability(self, cap_type: str, instance: str | None = None) -> bool:
-        for cap in self.capabilities:
-            if cap.type == cap_type:
-                if instance is None or cap.instance == instance:
-                    return True
-        return False
+    @property
+    def is_supported(self) -> bool:
+        """Check if device is supported."""
+        return self.sku not in UNSUPPORTED_SKUS
 
-    def get_capability(
-        self, cap_type: str, instance: str | None = None
-    ) -> DeviceCapability | None:
-        for cap in self.capabilities:
-            if cap.type == cap_type:
-                if instance is None or cap.instance == instance:
-                    return cap
-        return None
+    @property
+    def is_group(self) -> bool:
+        """Check if device is a group (can't be polled for state)."""
+        return self.sku in UNSUPPORTED_SKUS
 
-    def get_capability_by_instance(self, instance: str) -> DeviceCapability | None:
+    @property
+    def is_light(self) -> bool:
+        """Check if device is a light."""
+        return self.device_type == "devices.types.light"
+
+    def has_capability(self, instance: str) -> bool:
+        """Check if device has a capability by instance name."""
+        return any(c.get("instance") == instance for c in self.capabilities)
+
+    def get_capability(self, instance: str) -> dict[str, Any] | None:
+        """Get capability by instance name."""
         for cap in self.capabilities:
-            if cap.instance == instance:
+            if cap.get("instance") == instance:
                 return cap
         return None
 
     @property
-    def supports_on_off(self) -> bool:
-        return self.has_capability(CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH)
-
-    @property
     def supports_brightness(self) -> bool:
-        return self.has_capability(CAPABILITY_RANGE, INSTANCE_BRIGHTNESS)
+        """Check if device supports brightness control."""
+        return self.has_capability("brightness")
 
     @property
     def supports_color(self) -> bool:
-        return self.has_capability(CAPABILITY_COLOR_SETTING, INSTANCE_COLOR_RGB)
+        """Check if device supports RGB color."""
+        return self.has_capability("colorRgb")
 
     @property
     def supports_color_temp(self) -> bool:
-        return self.has_capability(CAPABILITY_COLOR_SETTING, INSTANCE_COLOR_TEMP)
-
-    @property
-    def supports_scenes(self) -> bool:
-        return self.has_capability(CAPABILITY_DYNAMIC_SCENE, INSTANCE_LIGHT_SCENE)
-
-    @property
-    def supports_diy_scenes(self) -> bool:
-        return self.has_capability(CAPABILITY_DYNAMIC_SCENE, INSTANCE_DIY_SCENE)
+        """Check if device supports color temperature."""
+        return self.has_capability("colorTemperatureK")
 
     @property
     def supports_segments(self) -> bool:
-        return self.has_capability(CAPABILITY_SEGMENT_COLOR)
+        """Check if device supports segment control."""
+        return self.has_capability("segmentedColorRgb")
 
     @property
-    def supports_music_mode(self) -> bool:
-        return self.has_capability(CAPABILITY_MUSIC_SETTING, INSTANCE_MUSIC_MODE)
+    def supports_scenes(self) -> bool:
+        """Check if device supports scenes."""
+        return self.has_capability("lightScene")
 
     @property
-    def supports_nightlight(self) -> bool:
-        return self.has_capability(CAPABILITY_TOGGLE, INSTANCE_NIGHTLIGHT_TOGGLE)
+    def segment_count(self) -> int:
+        """Get number of segments if segmented device."""
+        cap = self.get_capability("segmentedColorRgb")
+        if not cap:
+            return 0
 
-    @property
-    def supports_snapshots(self) -> bool:
-        return self.has_capability(CAPABILITY_DYNAMIC_SCENE, INSTANCE_SNAPSHOT)
-
-    def get_snapshot_options(self) -> list[dict[str, Any]]:
-        """Get snapshot options from device capabilities.
-
-        Snapshots are stored directly in the device's capabilities from the
-        /user/devices endpoint, not from a separate API call.
-        """
-        cap = self.get_capability(CAPABILITY_DYNAMIC_SCENE, INSTANCE_SNAPSHOT)
-        if cap and cap.parameters and cap.parameters.options:
-            return cap.parameters.options
-        return []
-
-    @property
-    def supports_oscillation_toggle(self) -> bool:
-        return self.has_capability(CAPABILITY_TOGGLE, INSTANCE_OSCILLATION_TOGGLE)
-
-    @property
-    def supports_thermostat_toggle(self) -> bool:
-        return self.has_capability(CAPABILITY_TOGGLE, INSTANCE_THERMOSTAT_TOGGLE)
-
-    @property
-    def supports_gradient_toggle(self) -> bool:
-        return self.has_capability(CAPABILITY_TOGGLE, INSTANCE_GRADIENT_TOGGLE)
-
-    @property
-    def supports_warm_mist_toggle(self) -> bool:
-        return self.has_capability(CAPABILITY_TOGGLE, INSTANCE_WARM_MIST_TOGGLE)
-
-    @property
-    def supports_air_deflector_toggle(self) -> bool:
-        return self.has_capability(CAPABILITY_TOGGLE, INSTANCE_AIR_DEFLECTOR_TOGGLE)
+        fields = cap.get("parameters", {}).get("fields", [])
+        for f in fields:
+            if f.get("fieldName") == "segment":
+                elem_range = f.get("elementRange", {})
+                return elem_range.get("max", 0) + 1
+        return 0
 
     def get_brightness_range(self) -> tuple[int, int]:
-        cap = self.get_capability(CAPABILITY_RANGE, INSTANCE_BRIGHTNESS)
-        if cap and cap.min_value is not None and cap.max_value is not None:
-            return (cap.min_value, cap.max_value)
+        """Get brightness range (min, max)."""
+        cap = self.get_capability("brightness")
+        if cap:
+            params = cap.get("parameters", {})
+            range_info = params.get("range", {})
+            return (range_info.get("min", 0), range_info.get("max", 100))
         return (0, 100)
 
     def get_color_temp_range(self) -> tuple[int, int]:
-        cap = self.get_capability(CAPABILITY_COLOR_SETTING, INSTANCE_COLOR_TEMP)
-        if cap and cap.min_value is not None and cap.max_value is not None:
-            return (cap.min_value, cap.max_value)
+        """Get color temperature range in Kelvin (min, max)."""
+        cap = self.get_capability("colorTemperatureK")
+        if cap:
+            params = cap.get("parameters", {})
+            range_info = params.get("range", {})
+            return (range_info.get("min", 2000), range_info.get("max", 9000))
         return (2000, 9000)
 
     def get_scene_options(self) -> list[dict[str, Any]]:
-        cap = self.get_capability(CAPABILITY_DYNAMIC_SCENE, INSTANCE_LIGHT_SCENE)
-        if cap and cap.parameters and cap.parameters.options:
-            return cap.parameters.options
+        """Get available scene options."""
+        cap = self.get_capability("lightScene")
+        if cap:
+            return cap.get("parameters", {}).get("options", [])
         return []
-
-    def get_segment_count(self) -> int:
-        cap = self.get_capability(CAPABILITY_SEGMENT_COLOR, INSTANCE_SEGMENTED_COLOR)
-        if cap and cap.parameters and cap.parameters.fields:
-            for fld in cap.parameters.fields:
-                if fld.get("fieldName") == "segment":
-                    elem_range: dict[str, int] = fld.get("elementRange", {})
-                    max_val: int = elem_range.get("max", 0)
-                    return max_val + 1
-        return 0

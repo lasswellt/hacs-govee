@@ -1,5 +1,4 @@
 """Base entity for Govee integration."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -7,19 +6,26 @@ from typing import Any
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from ..const import DOMAIN
-from ..coordinator import GoveeDataUpdateCoordinator
+from ..coordinator import GoveeCoordinator
 from ..models import GoveeDevice, GoveeDeviceState
 
+DOMAIN = "govee"
 
-class GoveeEntity(CoordinatorEntity[GoveeDataUpdateCoordinator]):
-    """Base entity for Govee devices with device registry and availability logic."""
+
+class GoveeEntity(CoordinatorEntity[GoveeCoordinator]):
+    """Base entity for Govee devices.
+
+    Provides common functionality:
+    - Device registry integration
+    - Coordinator state access
+    - Availability based on online status
+    """
 
     _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: GoveeDataUpdateCoordinator,
+        coordinator: GoveeCoordinator,
         device: GoveeDevice,
     ) -> None:
         super().__init__(coordinator)
@@ -36,40 +42,41 @@ class GoveeEntity(CoordinatorEntity[GoveeDataUpdateCoordinator]):
 
     @property
     def device_state(self) -> GoveeDeviceState | None:
+        """Get current device state from coordinator."""
         return self.coordinator.get_state(self._device_id)
 
     @property
-    def _is_group_device(self) -> bool:
-        from ..const import UNSUPPORTED_DEVICE_SKUS
-
-        return self._device.sku in UNSUPPORTED_DEVICE_SKUS
-
-    @property
     def available(self) -> bool:
-        """Group devices always available for control."""
+        """Return True if entity is available.
+
+        Group devices are always considered available for control
+        since their state queries fail but control works.
+        """
         if not super().available:
             return False
 
-        if self._is_group_device:
+        # Group devices always available for control
+        if self._device.is_group:
             return True
 
         state = self.device_state
-        if state is None:
-            return False
-
-        return state.online
+        return state is not None and state.online
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        attrs = {
+        """Return extra state attributes."""
+        attrs: dict[str, Any] = {
             "device_id": self._device_id,
             "model": self._device.sku,
-            "rate_limit_remaining": self.coordinator.rate_limit_remaining,
-            "rate_limit_remaining_minute": self.coordinator.rate_limit_remaining_minute,
         }
 
-        if self._is_group_device:
+        if self._device.is_group:
             attrs["group_device"] = True
             attrs["assumed_state_reason"] = "Group devices cannot be queried for state"
+
+        if self.coordinator.iot_connected:
+            attrs["update_mode"] = "real-time (AWS IoT)"
+        else:
+            attrs["update_mode"] = "polling"
 
         return attrs
