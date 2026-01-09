@@ -7,12 +7,19 @@ Reference: homebridge-govee, govee2mqtt implementations
 """
 from __future__ import annotations
 
+import base64
 import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    pkcs12,
+)
 
 from .exceptions import GoveeApiError, GoveeAuthError
 
@@ -23,31 +30,53 @@ GOVEE_LOGIN_URL = "https://app2.govee.com/account/rest/account/v1/login"
 GOVEE_CLIENT_TYPE = "1"  # Android client type
 
 
-def _format_pem(data: str, pem_type: str = "CERTIFICATE") -> str:
-    """Format raw certificate/key data as PEM if needed.
+def _extract_p12_credentials(p12_base64: str) -> tuple[str, str]:
+    """Extract certificate and private key from P12/PFX container.
 
-    Govee API may return certificates without PEM headers.
-    SSL libraries require proper PEM format with headers and line wrapping.
+    Govee API returns AWS IoT credentials as a PKCS#12 (P12/PFX) container
+    in base64 encoding. This function extracts the certificate and private
+    key and converts them to PEM format for use with SSL/TLS.
 
     Args:
-        data: Raw certificate or key data (may be base64 or already PEM)
-        pem_type: PEM type header (e.g., "CERTIFICATE", "RSA PRIVATE KEY")
+        p12_base64: Base64-encoded P12/PFX container from Govee API
 
     Returns:
-        Properly formatted PEM string
+        Tuple of (certificate_pem, private_key_pem)
+
+    Raises:
+        GoveeApiError: If P12 extraction fails
     """
-    if not data:
-        return ""
+    if not p12_base64:
+        raise GoveeApiError("Empty P12 data received from Govee API")
 
-    # Already PEM formatted
-    if data.strip().startswith("-----BEGIN"):
-        return data
+    try:
+        # Decode base64 to get raw P12 bytes
+        p12_data = base64.b64decode(p12_base64)
 
-    # Remove any whitespace and wrap at 64 chars (PEM requirement)
-    clean = data.replace("\n", "").replace("\r", "").replace(" ", "")
-    lines = [clean[i:i + 64] for i in range(0, len(clean), 64)]
+        # Parse PKCS#12 container (Govee uses no password)
+        private_key, certificate, _ = pkcs12.load_key_and_certificates(p12_data, None)
 
-    return f"-----BEGIN {pem_type}-----\n" + "\n".join(lines) + f"\n-----END {pem_type}-----\n"
+        if private_key is None:
+            raise GoveeApiError("No private key found in P12 container")
+        if certificate is None:
+            raise GoveeApiError("No certificate found in P12 container")
+
+        # Convert private key to PEM format (PKCS8)
+        key_pem = private_key.private_bytes(
+            encoding=Encoding.PEM,
+            format=PrivateFormat.PKCS8,
+            encryption_algorithm=NoEncryption(),
+        ).decode("utf-8")
+
+        # Convert certificate to PEM format
+        cert_pem = certificate.public_bytes(Encoding.PEM).decode("utf-8")
+
+        _LOGGER.debug("Successfully extracted certificate and key from P12 container")
+        return cert_pem, key_pem
+
+    except Exception as err:
+        _LOGGER.error("Failed to extract P12 credentials: %s", err)
+        raise GoveeApiError(f"Failed to parse P12 certificate: {err}") from err
 
 
 @dataclass
@@ -170,18 +199,18 @@ class GoveeAuthClient:
                     list(client_data.keys()) if client_data else "empty",
                 )
 
-                # Extract AWS IoT credentials
-                # Note: Govee uses "A" for certificate and "B" for private key
-                # Format as PEM if not already (Govee may return raw base64)
-                raw_cert = client_data.get("A", "")
-                raw_key = client_data.get("B", "")
+                # Extract AWS IoT credentials from P12/PFX container
+                # Govee API returns a PKCS#12 container in field "A" containing
+                # both the certificate and private key bundled together
+                raw_p12 = client_data.get("A", "")
+                cert_pem, key_pem = _extract_p12_credentials(raw_p12)
 
                 credentials = GoveeIotCredentials(
                     token=client_data.get("token", ""),
                     refresh_token=client_data.get("refreshToken", ""),
                     account_topic=client_data.get("topic", ""),
-                    iot_cert=_format_pem(raw_cert, "CERTIFICATE"),
-                    iot_key=_format_pem(raw_key, "RSA PRIVATE KEY"),
+                    iot_cert=cert_pem,
+                    iot_key=key_pem,
                     iot_ca=client_data.get("caCertificate"),
                     client_id=client_id,
                     endpoint=client_data.get("endpoint", "aqm3wd1qlc3dy-ats.iot.us-east-1.amazonaws.com"),
