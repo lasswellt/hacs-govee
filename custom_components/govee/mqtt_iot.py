@@ -40,6 +40,30 @@ AWS_IOT_KEEPALIVE = 60
 RECONNECT_BASE = 5
 RECONNECT_MAX = 300
 
+# Amazon Root CA 1 - Required for AWS IoT server certificate verification
+# Source: https://www.amazontrust.com/repository/AmazonRootCA1.pem
+AMAZON_ROOT_CA1 = """-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF
+ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6
+b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTEL
+MAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJv
+b3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXj
+ca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM
+9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qw
+IFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6
+VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L
+93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQm
+jgSubJrIqg0CAwEAAaNjMGEwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB/wQFMAMB
+Af8wHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMB8GA1UdIwQYMBaAFIQY
+zIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUAA4IBAQCY8jdaQZChGsV2
+USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDIU5PMCCjjmCXPI6T53iHT
+fIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUsN+gDS63pYaACbvXy8MWy
+7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vvo/ufQJVtMVT8QtPHRh8j
+rdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU5MsI+yMRQ+hDKXJioald
+XgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpyrqXRfboQnoZsG4q5WTP4
+68SQvvG5
+-----END CERTIFICATE-----"""
+
 
 class GoveeAwsIotClient:
     """AWS IoT MQTT client for real-time Govee device state updates.
@@ -94,6 +118,7 @@ class GoveeAwsIotClient:
         """Stop the AWS IoT MQTT connection.
 
         Cancels the connection loop and cleans up temporary certificate files.
+        Cleanup is run in executor to avoid blocking the event loop.
         """
         _LOGGER.debug("Stopping AWS IoT MQTT client")
         self._running = False
@@ -106,19 +131,26 @@ class GoveeAwsIotClient:
                 pass
             self._task = None
 
-        # Clean up temp certificate files
+        # Clean up temp certificate files in executor to avoid blocking
         if self._temp_dir:
+            temp_dir = self._temp_dir
+            self._temp_dir = None
             try:
-                self._temp_dir.cleanup()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, temp_dir.cleanup)
             except Exception:
                 pass
-            self._temp_dir = None
 
         self._connected = False
         _LOGGER.info("AWS IoT MQTT client stopped")
 
     def _create_ssl_context_sync(self) -> ssl.SSLContext:
         """Create SSL context with certificate files (synchronous).
+
+        Configures mutual TLS authentication for AWS IoT:
+        - Loads Amazon Root CA for server verification
+        - Loads client certificate and key for client authentication
+        - Enforces TLS 1.2+ as required by AWS IoT
 
         Writes certificate/key to temporary files for SSL context loading.
         aiomqtt requires file paths, not in-memory certificates.
@@ -149,15 +181,25 @@ class GoveeAwsIotClient:
             key_path.write_text(self._credentials.iot_key)
             key_path.chmod(0o600)
 
-            ssl_context = ssl.create_default_context()
+            # Create SSL context for mutual TLS with AWS IoT
+            # AWS IoT requires TLS 1.2+ and proper certificate verification
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+            ssl_context.check_hostname = True
+
+            # Load Amazon Root CA for server certificate verification
+            # This is required for AWS IoT - using embedded certificate
+            ssl_context.load_verify_locations(cadata=AMAZON_ROOT_CA1)
+
+            # Load client certificate and private key for mutual TLS
             ssl_context.load_cert_chain(str(cert_path), str(key_path))
 
-            # Load CA certificate if provided
-            if self._credentials.iot_ca:
-                ca_path = temp_path / "ca.pem"
-                ca_path.write_text(self._credentials.iot_ca)
-                ca_path.chmod(0o600)
-                ssl_context.load_verify_locations(str(ca_path))
+            _LOGGER.debug(
+                "SSL context created: TLS 1.2+, verify_mode=%s, check_hostname=%s",
+                ssl_context.verify_mode,
+                ssl_context.check_hostname,
+            )
 
             # Only store reference after successful creation
             self._temp_dir = temp_dir
