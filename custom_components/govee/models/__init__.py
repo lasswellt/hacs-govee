@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 from .device import GoveeDevice
 from .state import GoveeDeviceState
@@ -23,7 +23,8 @@ class GoveeRuntimeData:
     devices: dict[str, GoveeDevice]
 
 
-type GoveeConfigEntry = ConfigEntry[GoveeRuntimeData]
+# TypeAlias syntax compatible with Python 3.10+
+GoveeConfigEntry: TypeAlias = "ConfigEntry[GoveeRuntimeData]"
 
 
 __all__ = [
