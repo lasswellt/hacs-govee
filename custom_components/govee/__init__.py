@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 
 from .api import GoveeApiClient, GoveeAuthError, GoveeIotCredentials
 from .api.auth import GoveeAuthClient
@@ -106,6 +107,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeConfigEntry) -> boo
     # Initial refresh
     await coordinator.async_config_entry_first_refresh()
 
+    # Clean up orphaned entities (e.g., groups that are now disabled)
+    await _async_cleanup_orphaned_entities(hass, entry, coordinator)
+
     # Store coordinator in entry
     entry.runtime_data = coordinator
 
@@ -153,6 +157,44 @@ async def async_unload_entry(hass: HomeAssistant, entry: GoveeConfigEntry) -> bo
             hass.data.pop(DOMAIN, None)
 
     return unload_ok
+
+
+async def _async_cleanup_orphaned_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: GoveeCoordinator,
+) -> None:
+    """Remove entity registry entries for devices no longer discovered.
+
+    This handles cleanup when group devices are disabled or devices are removed.
+    """
+    entity_registry = er.async_get(hass)
+
+    # Get all entity entries for this config entry
+    entries_to_remove = []
+    for entity_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        # Extract device_id from unique_id (format: "device_id" or "device_id_segment_X")
+        unique_id = entity_entry.unique_id
+        if unique_id:
+            # Handle segment entities (e.g., "AA:BB:CC:DD_segment_0")
+            device_id = unique_id.split("_segment_")[0] if "_segment_" in unique_id else unique_id
+
+            # Check if this device is still discovered
+            if device_id not in coordinator.devices:
+                entries_to_remove.append(entity_entry)
+                _LOGGER.debug(
+                    "Marking orphaned entity for removal: %s (device %s not discovered)",
+                    entity_entry.entity_id,
+                    device_id,
+                )
+
+    # Remove orphaned entries
+    for entity_entry in entries_to_remove:
+        _LOGGER.info("Removing orphaned entity: %s", entity_entry.entity_id)
+        entity_registry.async_remove(entity_entry.entity_id)
+
+    if entries_to_remove:
+        _LOGGER.info("Cleaned up %d orphaned entities", len(entries_to_remove))
 
 
 async def _async_update_listener(
