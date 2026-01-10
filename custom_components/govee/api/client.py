@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
-from aiohttp_retry import ExponentialRetry, RetryClient  # type: ignore[import-not-found]
+from aiohttp_retry import ExponentialRetry, RetryClient
 
 from ..models.device import GoveeDevice
 from ..models.state import GoveeDeviceState
