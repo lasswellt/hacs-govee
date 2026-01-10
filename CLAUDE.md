@@ -163,3 +163,93 @@ MQTT client for real-time updates:
 - Coordinator manages all state - entities are observers
 - MQTT is optional - polling is the fallback
 - Rate limits: 100/min, 10,000/day
+
+## Govee API v2.0 Patterns
+
+### Control Command Payload
+Commands use a flat structure (NOT nested):
+```json
+{
+  "requestId": "uuid",
+  "payload": {
+    "sku": "H601F",
+    "device": "03:9C:DC:06:75:4B:10:7C",
+    "capability": {
+      "type": "devices.capabilities.on_off",
+      "instance": "powerSwitch",
+      "value": 1
+    }
+  }
+}
+```
+
+Reference: `docs/govee-protocol-reference.md`
+
+### Device ID Detection
+- **Regular devices**: MAC address format `03:9C:DC:06:75:4B:10:7C`
+- **Group devices**: Numeric-only IDs like `11825917`
+- Detection: `device_id.isdigit()` returns True for groups
+
+### Segment Capability Parsing
+RGBIC segment count is in `fields[].elementRange.max + 1`:
+```python
+# API returns elementRange with 0-based max index
+# e.g., {"min": 0, "max": 6} = 7 segments (0-6)
+segment_count = element_range["max"] + 1
+```
+
+## Debug Logging Patterns
+
+Add debug logging when:
+1. Processing capabilities during device discovery
+2. Creating entities to show which ones are being set up
+3. Control commands fail to show payload details
+4. State updates from MQTT
+
+Example pattern:
+```python
+_LOGGER.debug(
+    "Device: %s (%s) type=%s is_group=%s",
+    device.name, device.device_id, device.device_type, device.is_group,
+)
+for cap in device.capabilities:
+    _LOGGER.debug("  Capability: type=%s instance=%s params=%s",
+        cap.type, cap.instance, cap.parameters)
+```
+
+## Options/Config Patterns
+
+### Options schema (config_flow.py)
+Options are defined in `GoveeOptionsFlowHandler.async_step_init()`:
+```python
+vol.Optional(CONF_POLL_INTERVAL, default=...): vol.All(vol.Coerce(int), vol.Range(min=30, max=600)),
+vol.Optional(CONF_ENABLE_GROUPS, default=...): bool,
+vol.Optional(CONF_ENABLE_SCENES, default=...): bool,
+vol.Optional(CONF_ENABLE_SEGMENTS, default=...): bool,
+```
+
+### Translations
+Update both files when changing option labels:
+- `strings.json` - Primary source
+- `translations/en.json` - English translation
+
+## Release Process
+
+1. **Bump version** in `manifest.json` (CalVer: `YYYY.MM.patch`)
+2. **Commit**: `git add -A && git commit -m "message"`
+3. **Push**: `git push origin master`
+4. **Wait for CI**: Check with `gh run list --limit 5`
+5. **Create release**: `gh release create vYYYY.MM.patch --title "vYYYY.MM.patch" --notes "..."`
+
+## Directory Updates
+
+The project structure has evolved:
+```
+custom_components/govee/
+├── select.py            # Scene selector dropdowns (replaced scene.py)
+├── platforms/
+│   └── segment.py       # RGBIC segment light entities
+```
+
+- **select.py**: One dropdown per device for scene selection
+- **segment.py**: Individual light entities for each RGBIC segment
