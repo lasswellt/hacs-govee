@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .api import GoveeApiClient, GoveeAuthError, GoveeIotCredentials
 from .api.auth import GoveeAuthClient
@@ -274,24 +274,25 @@ async def _async_cleanup_orphaned_entities(
                     should_remove = True
                     removal_reason = f"device {device_id} not discovered"
 
-        # Check for scene select entities that should be removed
-        elif unique_id.endswith("_scene_select"):
-            if not enable_scenes:
-                should_remove = True
-                removal_reason = "scenes disabled"
-            else:
-                device_id = unique_id[: -len("_scene_select")]
-                if device_id not in coordinator.devices:
-                    should_remove = True
-                    removal_reason = f"device {device_id} not discovered"
-
         # Check for DIY scene select entities that should be removed
+        # IMPORTANT: Check DIY scenes first since _diy_scene_select also ends with _scene_select
         elif unique_id.endswith("_diy_scene_select"):
             if not enable_diy_scenes:
                 should_remove = True
                 removal_reason = "DIY scenes disabled"
             else:
                 device_id = unique_id[: -len("_diy_scene_select")]
+                if device_id not in coordinator.devices:
+                    should_remove = True
+                    removal_reason = f"device {device_id} not discovered"
+
+        # Check for regular scene select entities that should be removed
+        elif unique_id.endswith("_scene_select"):
+            if not enable_scenes:
+                should_remove = True
+                removal_reason = "scenes disabled"
+            else:
+                device_id = unique_id[: -len("_scene_select")]
                 if device_id not in coordinator.devices:
                     should_remove = True
                     removal_reason = f"device {device_id} not discovered"
@@ -344,6 +345,39 @@ async def _async_cleanup_orphaned_entities(
 
     if entries_to_remove:
         _LOGGER.info("Cleaned up %d orphaned entities", len(entries_to_remove))
+
+    # Clean up orphaned devices (devices with no remaining entities)
+    # This ensures immediate removal when all entities for a device are removed
+    device_registry = dr.async_get(hass)
+
+    devices_to_remove = []
+    for device_entry in dr.async_entries_for_config_entry(
+        device_registry, entry.entry_id
+    ):
+        # Check if device has any remaining entities
+        entity_entries = er.async_entries_for_device(
+            entity_registry,
+            device_entry.id,
+            include_disabled_entities=True,
+        )
+
+        if not entity_entries:
+            devices_to_remove.append(device_entry)
+            _LOGGER.debug(
+                "Marking orphaned device for removal: %s (no entities remain)",
+                device_entry.name or device_entry.id,
+            )
+
+    # Remove orphaned devices
+    for device_entry in devices_to_remove:
+        _LOGGER.info(
+            "Removing orphaned device: %s",
+            device_entry.name or device_entry.id,
+        )
+        device_registry.async_remove_device(device_entry.id)
+
+    if devices_to_remove:
+        _LOGGER.info("Cleaned up %d orphaned devices", len(devices_to_remove))
 
 
 async def _async_update_listener(

@@ -209,6 +209,28 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                 self._enable_groups,
             )
 
+            # Pre-populate scene cache for devices with scene capabilities
+            # This ensures scene entities are created on initial setup
+            _LOGGER.debug("Pre-populating scene cache for %d devices", len(self._devices))
+            for device_id, device in self._devices.items():
+                if device.supports_scenes:
+                    try:
+                        scenes = await self._api_client.get_dynamic_scenes(device_id, device.sku)
+                        self._scene_cache[device_id] = scenes
+                        _LOGGER.debug("Cached %d scenes for %s", len(scenes), device.name)
+                    except GoveeApiError as err:
+                        _LOGGER.warning("Failed to pre-fetch scenes for %s: %s", device.name, err)
+                        self._scene_cache[device_id] = []
+
+                if device.supports_diy_scenes:
+                    try:
+                        diy_scenes = await self._api_client.get_diy_scenes(device_id, device.sku)
+                        self._diy_scene_cache[device_id] = diy_scenes
+                        _LOGGER.debug("Cached %d DIY scenes for %s", len(diy_scenes), device.name)
+                    except GoveeApiError as err:
+                        _LOGGER.warning("Failed to pre-fetch DIY scenes for %s: %s", device.name, err)
+                        self._diy_scene_cache[device_id] = []
+
             # Clear any auth issues on success
             await async_delete_auth_issue(self.hass, self._config_entry)
 
@@ -473,19 +495,44 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
             List of scene definitions.
         """
         if not refresh and device_id in self._scene_cache:
-            return self._scene_cache[device_id]
+            cached_scenes = self._scene_cache[device_id]
+            _LOGGER.debug(
+                "Returning %d cached scenes for %s",
+                len(cached_scenes),
+                device_id,
+            )
+            return cached_scenes
 
         device = self._devices.get(device_id)
         if not device:
+            _LOGGER.warning("Device %s not found in coordinator for scene fetch", device_id)
             return []
+
+        _LOGGER.debug(
+            "Fetching scenes from API for %s (sku=%s)",
+            device.name,
+            device.sku,
+        )
 
         try:
             scenes = await self._api_client.get_dynamic_scenes(device_id, device.sku)
             self._scene_cache[device_id] = scenes
+            _LOGGER.info(
+                "Fetched and cached %d scenes for %s",
+                len(scenes),
+                device.name,
+            )
             return scenes
         except GoveeApiError as err:
-            _LOGGER.warning("Failed to fetch scenes for %s: %s", device_id, err)
-            return self._scene_cache.get(device_id, [])
+            _LOGGER.error(
+                "API error fetching scenes for %s: %s",
+                device.name,
+                err,
+            )
+            # Return cached scenes if available, otherwise empty list
+            cached = self._scene_cache.get(device_id, [])
+            _LOGGER.debug("Returning %d cached scenes after error", len(cached))
+            return cached
 
     async def async_get_diy_scenes(
         self,
@@ -502,19 +549,44 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
             List of DIY scene definitions.
         """
         if not refresh and device_id in self._diy_scene_cache:
-            return self._diy_scene_cache[device_id]
+            cached_scenes = self._diy_scene_cache[device_id]
+            _LOGGER.debug(
+                "Returning %d cached DIY scenes for %s",
+                len(cached_scenes),
+                device_id,
+            )
+            return cached_scenes
 
         device = self._devices.get(device_id)
         if not device:
+            _LOGGER.warning("Device %s not found in coordinator for DIY scene fetch", device_id)
             return []
+
+        _LOGGER.debug(
+            "Fetching DIY scenes from API for %s (sku=%s)",
+            device.name,
+            device.sku,
+        )
 
         try:
             scenes = await self._api_client.get_diy_scenes(device_id, device.sku)
             self._diy_scene_cache[device_id] = scenes
+            _LOGGER.info(
+                "Fetched and cached %d DIY scenes for %s",
+                len(scenes),
+                device.name,
+            )
             return scenes
         except GoveeApiError as err:
-            _LOGGER.warning("Failed to fetch DIY scenes for %s: %s", device_id, err)
-            return self._diy_scene_cache.get(device_id, [])
+            _LOGGER.error(
+                "API error fetching DIY scenes for %s: %s",
+                device.name,
+                err,
+            )
+            # Return cached scenes if available, otherwise empty list
+            cached = self._diy_scene_cache.get(device_id, [])
+            _LOGGER.debug("Returning %d cached DIY scenes after error", len(cached))
+            return cached
 
     async def async_shutdown(self) -> None:
         """Shutdown coordinator and cleanup resources."""
