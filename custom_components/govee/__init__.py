@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 # Platforms to set up
 PLATFORMS: list[Platform] = [
     Platform.LIGHT,
-    Platform.SCENE,
+    Platform.SELECT,  # Scene dropdowns
     Platform.SWITCH,
     Platform.SENSOR,
     Platform.BUTTON,

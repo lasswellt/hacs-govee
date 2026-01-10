@@ -162,6 +162,14 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
             devices = await self._api_client.get_devices()
 
             for device in devices:
+                _LOGGER.debug(
+                    "Device: %s (%s) type=%s is_group=%s",
+                    device.name,
+                    device.device_id,
+                    device.device_type,
+                    device.is_group,
+                )
+
                 # Filter group devices unless enabled
                 if device.is_group and not self._enable_groups:
                     _LOGGER.debug("Skipping group device: %s", device.name)
@@ -173,7 +181,11 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                     device.device_id
                 )
 
-            _LOGGER.info("Discovered %d Govee devices", len(self._devices))
+            _LOGGER.info(
+                "Discovered %d Govee devices (enable_groups=%s)",
+                len(self._devices),
+                self._enable_groups,
+            )
 
             # Clear any auth issues on success
             await async_delete_auth_issue(self.hass, self._config_entry)

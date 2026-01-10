@@ -71,9 +71,9 @@
         "name": "{device_name} Segment {segment_index}"
       }
     },
-    "scene": {
-      "govee_scene": {
-        "name": "{scene_name}"
+    "select": {
+      "govee_scene_select": {
+        "name": "Scene"
       }
     },
     "switch": {

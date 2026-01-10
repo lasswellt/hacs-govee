@@ -25,6 +25,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .const import CONF_ENABLE_SEGMENTS, DEFAULT_ENABLE_SEGMENTS
 from .coordinator import GoveeCoordinator
 from .entity import GoveeEntity
 from .models import (
@@ -35,6 +36,7 @@ from .models import (
     PowerCommand,
     RGBColor,
 )
+from .platforms.segment import GoveeSegmentEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,10 +54,29 @@ async def async_setup_entry(
 
     entities: list[LightEntity] = []
 
+    # Check if segments are enabled
+    enable_segments = entry.options.get(CONF_ENABLE_SEGMENTS, DEFAULT_ENABLE_SEGMENTS)
+
     for device in coordinator.devices.values():
         # Only create light entities for devices with power control
         if device.supports_power:
             entities.append(GoveeLightEntity(coordinator, device))
+
+        # Create segment entities for RGBIC devices
+        if enable_segments and device.supports_segments and device.segment_count > 0:
+            _LOGGER.debug(
+                "Creating %d segment entities for %s",
+                device.segment_count,
+                device.name,
+            )
+            for segment_index in range(device.segment_count):
+                entities.append(
+                    GoveeSegmentEntity(
+                        coordinator=coordinator,
+                        device=device,
+                        segment_index=segment_index,
+                    )
+                )
 
     async_add_entities(entities)
     _LOGGER.debug("Set up %d Govee light entities", len(entities))
