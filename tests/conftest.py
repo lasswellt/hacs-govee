@@ -100,12 +100,33 @@ def light_capabilities() -> tuple[GoveeCapability, ...]:
 
 @pytest.fixture
 def rgbic_capabilities(light_capabilities) -> tuple[GoveeCapability, ...]:
-    """Create capabilities for an RGBIC device."""
+    """Create capabilities for an RGBIC device.
+
+    Matches real API response structure with fields/elementRange.
+    """
     return light_capabilities + (
         GoveeCapability(
             type=CAPABILITY_SEGMENT_COLOR,
             instance="segmentedColorRgb",
-            parameters={"segmentCount": 15},
+            parameters={
+                "dataType": "STRUCT",
+                "fields": [
+                    {
+                        "fieldName": "segment",
+                        "size": {"min": 1, "max": 15},
+                        "dataType": "Array",
+                        "elementRange": {"min": 0, "max": 14},
+                        "elementType": "INTEGER",
+                        "required": True,
+                    },
+                    {
+                        "fieldName": "rgb",
+                        "dataType": "INTEGER",
+                        "range": {"min": 0, "max": 16777215},
+                        "required": True,
+                    },
+                ],
+            },
         ),
     )
 

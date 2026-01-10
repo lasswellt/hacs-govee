@@ -66,19 +66,34 @@ class SegmentCapability:
 
     @classmethod
     def from_capability(cls, capability: dict[str, Any]) -> SegmentCapability | None:
-        """Parse from capability parameters."""
+        """Parse from capability parameters.
+
+        The segment count can be found in different places:
+        1. Direct 'segmentCount' parameter
+        2. In fields[].elementRange.max + 1 (0-based index)
+        3. In fields[].size.max (max array size)
+        """
         params = capability.get("parameters", {})
-        # Segment count may be in 'segmentCount' or inferred from array
+
+        # Try direct segmentCount parameter
         count = params.get("segmentCount", 0)
+
         if not count:
-            # Try to get from fields array length
+            # Try to get from fields array structure
             fields = params.get("fields", [])
             for f in fields:
                 if f.get("fieldName") == "segment":
-                    options = f.get("options", [])
-                    if options:
-                        count = len(options)
+                    # Check elementRange (0-based max index)
+                    element_range = f.get("elementRange", {})
+                    if "max" in element_range:
+                        count = element_range["max"] + 1  # Convert to count
                         break
+                    # Fallback to size.max
+                    size = f.get("size", {})
+                    if "max" in size:
+                        count = size["max"]
+                        break
+
         return cls(segment_count=count) if count else None
 
 
