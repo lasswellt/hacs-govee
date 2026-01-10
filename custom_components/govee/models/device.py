@@ -5,8 +5,11 @@ Frozen dataclass for immutability - device properties don't change at runtime.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 # Capability type constants (from Govee API v2.0)
 CAPABILITY_ON_OFF = "devices.capabilities.on_off"
@@ -132,13 +135,43 @@ class GoveeCapability:
 
     @property
     def is_scene(self) -> bool:
-        """Check if this is a lightScene capability."""
-        return self.type == CAPABILITY_DYNAMIC_SCENE and self.instance == INSTANCE_SCENE
+        """Check if this is a lightScene capability.
+
+        Uses case-insensitive matching for robustness.
+        """
+        result = (
+            self.type == CAPABILITY_DYNAMIC_SCENE
+            and self.instance.lower() == INSTANCE_SCENE.lower()
+        )
+        if self.type == CAPABILITY_DYNAMIC_SCENE:
+            _LOGGER.debug(
+                "Checking is_scene: type=%s instance=%s expected=%s result=%s",
+                self.type,
+                self.instance,
+                INSTANCE_SCENE,
+                result,
+            )
+        return result
 
     @property
     def is_diy_scene(self) -> bool:
-        """Check if this is a DIY scene capability."""
-        return self.type == CAPABILITY_DYNAMIC_SCENE and self.instance == INSTANCE_DIY
+        """Check if this is a DIY scene capability.
+
+        Uses case-insensitive matching for robustness.
+        """
+        result = (
+            self.type == CAPABILITY_DYNAMIC_SCENE
+            and self.instance.lower() == INSTANCE_DIY.lower()
+        )
+        if self.type == CAPABILITY_DYNAMIC_SCENE:
+            _LOGGER.debug(
+                "Checking is_diy_scene: type=%s instance=%s expected=%s result=%s",
+                self.type,
+                self.instance,
+                INSTANCE_DIY,
+                result,
+            )
+        return result
 
     @property
     def is_toggle(self) -> bool:

@@ -46,10 +46,24 @@ async def async_setup_entry(
     enable_scenes = entry.options.get(CONF_ENABLE_SCENES, DEFAULT_ENABLE_SCENES)
     enable_diy_scenes = entry.options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES)
 
+    _LOGGER.debug(
+        "Scene entity setup: enable_scenes=%s enable_diy_scenes=%s",
+        enable_scenes,
+        enable_diy_scenes,
+    )
+
     for device in coordinator.devices.values():
+        _LOGGER.debug(
+            "Device %s: supports_scenes=%s supports_diy_scenes=%s",
+            device.name,
+            device.supports_scenes,
+            device.supports_diy_scenes,
+        )
+
         # Dynamic scenes
         if enable_scenes and device.supports_scenes:
             scenes = await coordinator.async_get_scenes(device.device_id)
+            _LOGGER.debug("Fetched %d scenes for %s", len(scenes), device.name)
             if scenes:
                 entities.append(
                     GoveeSceneSelectEntity(
@@ -58,10 +72,12 @@ async def async_setup_entry(
                         scenes=scenes,
                     )
                 )
+                _LOGGER.debug("Created scene select entity for %s", device.name)
 
         # DIY scenes
         if enable_diy_scenes and device.supports_diy_scenes:
             diy_scenes = await coordinator.async_get_diy_scenes(device.device_id)
+            _LOGGER.debug("Fetched %d DIY scenes for %s", len(diy_scenes), device.name)
             if diy_scenes:
                 entities.append(
                     GoveeDIYSceneSelectEntity(
@@ -70,6 +86,7 @@ async def async_setup_entry(
                         scenes=diy_scenes,
                     )
                 )
+                _LOGGER.debug("Created DIY scene select entity for %s", device.name)
 
     async_add_entities(entities)
     _LOGGER.debug("Set up %d Govee scene select entities", len(entities))

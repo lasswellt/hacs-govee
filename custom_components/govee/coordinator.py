@@ -164,6 +164,12 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         try:
             devices = await self._api_client.get_devices()
 
+            _LOGGER.info(
+                "API returned %d devices (enable_groups=%s)",
+                len(devices),
+                self._enable_groups,
+            )
+
             for device in devices:
                 _LOGGER.debug(
                     "Device: %s (%s) type=%s is_group=%s",
@@ -183,9 +189,14 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
 
                 # Filter group devices unless enabled
                 if device.is_group and not self._enable_groups:
-                    _LOGGER.debug("Skipping group device: %s", device.name)
+                    _LOGGER.info(
+                        "Skipping group device: %s (device_id=%s) because enable_groups=False",
+                        device.name,
+                        device.device_id,
+                    )
                     continue
 
+                _LOGGER.debug("Adding device to coordinator: %s", device.device_id)
                 self._devices[device.device_id] = device
                 # Create empty state for each device
                 self._states[device.device_id] = GoveeDeviceState.create_empty(

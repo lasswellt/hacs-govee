@@ -342,9 +342,15 @@ class GoveeOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Handle options flow."""
         if user_input is not None:
+            _LOGGER.info("Options saved: %s", user_input)
+            _LOGGER.debug(
+                "Previous options: %s",
+                self._config_entry.options,
+            )
             return self.async_create_entry(title="", data=user_input)
 
         options = self._config_entry.options
+        _LOGGER.debug("Showing options form with current values: %s", options)
 
         return self.async_show_form(
             step_id="init",

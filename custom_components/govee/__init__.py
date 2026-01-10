@@ -68,6 +68,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeConfigEntry) -> boo
         ConfigEntryAuthFailed: Invalid API key.
         ConfigEntryNotReady: Temporary setup failure.
     """
+    _LOGGER.info("Setting up Govee integration (entry_id=%s)", entry.entry_id)
+    _LOGGER.debug("Entry options: %s", entry.options)
+
     api_key = entry.data[CONF_API_KEY]
 
     # Create API client
@@ -242,8 +245,15 @@ async def _async_cleanup_orphaned_entities(
     )
 
     # Get all entity entries for this config entry
+    all_entities = list(er.async_entries_for_config_entry(entity_registry, entry.entry_id))
+    _LOGGER.debug(
+        "Checking %d entities for cleanup (coordinator has %d devices)",
+        len(all_entities),
+        len(coordinator.devices),
+    )
+
     entries_to_remove = []
-    for entity_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+    for entity_entry in all_entities:
         # Extract device_id from unique_id
         unique_id = entity_entry.unique_id
         if not unique_id:
@@ -289,26 +299,47 @@ async def _async_cleanup_orphaned_entities(
         # Check other entity types for device existence
         else:
             device_id = unique_id
+            _LOGGER.debug("Checking entity unique_id=%s", unique_id)
+
             for suffix in entity_suffixes:
                 if device_id.endswith(suffix):
                     device_id = device_id[: -len(suffix)]
+                    _LOGGER.debug("  Stripped suffix, device_id=%s", device_id)
                     break
 
             if device_id not in coordinator.devices:
                 should_remove = True
                 removal_reason = f"device {device_id} not discovered"
+                _LOGGER.debug(
+                    "  Device not in coordinator (enable_groups=%s). Available devices: %s",
+                    coordinator._enable_groups,
+                    list(coordinator.devices.keys()),
+                )
 
         if should_remove:
             entries_to_remove.append(entity_entry)
             _LOGGER.debug(
-                "Marking orphaned entity for removal: %s (%s)",
+                "Marking orphaned entity for removal: %s (unique_id=%s, reason=%s)",
                 entity_entry.entity_id,
+                entity_entry.unique_id,
                 removal_reason,
             )
 
     # Remove orphaned entries
     for entity_entry in entries_to_remove:
-        _LOGGER.info("Removing orphaned entity: %s", entity_entry.entity_id)
+        _LOGGER.info(
+            "Removing orphaned entity: %s (unique_id=%s, platform=%s)",
+            entity_entry.entity_id,
+            entity_entry.unique_id,
+            entity_entry.platform,
+        )
+
+        # Remove from state machine first (if exists)
+        if hass.states.get(entity_entry.entity_id):
+            _LOGGER.debug("Removing entity from state machine: %s", entity_entry.entity_id)
+            hass.states.async_remove(entity_entry.entity_id)
+
+        # Remove from entity registry
         entity_registry.async_remove(entity_entry.entity_id)
 
     if entries_to_remove:
@@ -323,4 +354,24 @@ async def _async_update_listener(
 
     Reloads the integration when options change.
     """
+    _LOGGER.info("Options changed, reloading integration")
+    _LOGGER.debug("Current options: %s", entry.options)
+
+    # Log specific option changes for debugging
+    enable_groups = entry.options.get(CONF_ENABLE_GROUPS, DEFAULT_ENABLE_GROUPS)
+    enable_scenes = entry.options.get(CONF_ENABLE_SCENES, DEFAULT_ENABLE_SCENES)
+    enable_diy_scenes = entry.options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES)
+    enable_segments = entry.options.get(CONF_ENABLE_SEGMENTS, DEFAULT_ENABLE_SEGMENTS)
+    poll_interval = entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+
+    _LOGGER.debug(
+        "Options: poll_interval=%s, enable_groups=%s, enable_scenes=%s, "
+        "enable_diy_scenes=%s, enable_segments=%s",
+        poll_interval,
+        enable_groups,
+        enable_scenes,
+        enable_diy_scenes,
+        enable_segments,
+    )
+
     await hass.config_entries.async_reload(entry.entry_id)
