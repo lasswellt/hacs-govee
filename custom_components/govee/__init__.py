@@ -226,6 +226,13 @@ async def _async_cleanup_orphaned_entities(
     enable_scenes = options.get(CONF_ENABLE_SCENES, DEFAULT_ENABLE_SCENES)
     enable_diy_scenes = options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES)
 
+    _LOGGER.debug(
+        "Orphan cleanup: enable_segments=%s, enable_scenes=%s, enable_diy_scenes=%s",
+        enable_segments,
+        enable_scenes,
+        enable_diy_scenes,
+    )
+
     # Suffixes used by various entity types
     entity_suffixes = (
         "_scene_select",

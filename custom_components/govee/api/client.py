@@ -33,6 +33,7 @@ ENDPOINT_DEVICES = f"{API_BASE}/user/devices"
 ENDPOINT_STATE = f"{API_BASE}/device/state"
 ENDPOINT_CONTROL = f"{API_BASE}/device/control"
 ENDPOINT_SCENES = f"{API_BASE}/device/scenes"
+ENDPOINT_DIY_SCENES = f"{API_BASE}/device/diy-scenes"
 
 # Retry configuration
 RETRY_ATTEMPTS = 3
@@ -413,7 +414,7 @@ class GoveeApiClient:
 
         try:
             async with client.post(
-                ENDPOINT_SCENES,
+                ENDPOINT_DIY_SCENES,
                 headers=self._get_headers(),
                 json=payload,
             ) as response:
@@ -422,7 +423,8 @@ class GoveeApiClient:
                 scenes = []
                 capabilities = data.get("payload", {}).get("capabilities", [])
                 for cap in capabilities:
-                    if cap.get("type") == "devices.capabilities.diy_scene":
+                    # DIY scenes endpoint returns dynamic_scene type with diyScene instance
+                    if cap.get("type") == "devices.capabilities.dynamic_scene":
                         params = cap.get("parameters", {})
                         options = params.get("options", [])
                         scenes.extend(options)
