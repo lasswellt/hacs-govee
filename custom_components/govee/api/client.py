@@ -1,378 +1,407 @@
+"""Govee REST API client with automatic retry support.
+
+Uses aiohttp-retry for exponential backoff on transient failures.
+Implements IApiClient protocol.
+"""
+
 from __future__ import annotations
 
-import asyncio
 import logging
-import uuid
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
-import async_timeout
+from aiohttp_retry import ExponentialRetry, RetryClient
 
-from .const import (
-    BASE_URL,
-    ENDPOINT_DEVICES,
-    ENDPOINT_DEVICE_CONTROL,
-    ENDPOINT_DEVICE_STATE,
-    ENDPOINT_DIY_SCENES,
-    ENDPOINT_DYNAMIC_SCENES,
-    REQUEST_TIMEOUT,
-)
+from ..models.device import GoveeDevice
+from ..models.state import GoveeDeviceState
 from .exceptions import (
     GoveeApiError,
     GoveeAuthError,
     GoveeConnectionError,
+    GoveeDeviceNotFoundError,
     GoveeRateLimitError,
 )
-from .rate_limiter import RateLimiter
+
+if TYPE_CHECKING:
+    from ..models.commands import DeviceCommand
 
 _LOGGER = logging.getLogger(__name__)
 
+# Govee API v2.0 endpoints
+API_BASE = "https://openapi.api.govee.com/router/api/v1"
+ENDPOINT_DEVICES = f"{API_BASE}/user/devices"
+ENDPOINT_STATE = f"{API_BASE}/device/state"
+ENDPOINT_CONTROL = f"{API_BASE}/device/control"
+ENDPOINT_SCENES = f"{API_BASE}/device/scenes"
+
+# Retry configuration
+RETRY_ATTEMPTS = 3
+RETRY_START_TIMEOUT = 1.0  # Initial retry delay in seconds
+RETRY_MAX_TIMEOUT = 30.0  # Maximum retry delay
+RETRY_FACTOR = 2.0  # Exponential factor
+
+# Non-retryable status codes
+NO_RETRY_STATUSES = {400, 401, 403, 404}
+
 
 class GoveeApiClient:
+    """Async HTTP client for Govee Cloud API v2.0.
+
+    Features:
+    - Automatic retry with exponential backoff (via aiohttp-retry)
+    - Rate limit tracking from response headers
+    - Proper exception mapping
+    - Device and state parsing
+
+    Usage:
+        async with GoveeApiClient(api_key) as client:
+            devices = await client.get_devices()
+    """
+
     def __init__(
         self,
         api_key: str,
         session: aiohttp.ClientSession | None = None,
     ) -> None:
+        """Initialize the API client.
+
+        Args:
+            api_key: Govee API key from developer portal.
+            session: Optional shared aiohttp session.
+        """
         self._api_key = api_key
         self._session = session
         self._owns_session = session is None
-        self._rate_limiter = RateLimiter(enabled=False)  # TODO: Re-enable after testing
+        self._retry_client: RetryClient | None = None
+
+        # Rate limit tracking (updated from response headers)
+        self.rate_limit_remaining: int = 100
+        self.rate_limit_total: int = 100
+        self.rate_limit_reset: int = 0
 
     async def __aenter__(self) -> GoveeApiClient:
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
+        """Async context manager entry."""
+        await self._ensure_client()
         return self
 
     async def __aexit__(self, *args: Any) -> None:
+        """Async context manager exit."""
         await self.close()
 
+    async def _ensure_client(self) -> RetryClient:
+        """Ensure retry client is initialized."""
+        if self._retry_client is None:
+            if self._session is None:
+                self._session = aiohttp.ClientSession()
+                self._owns_session = True
+
+            retry_options = ExponentialRetry(
+                attempts=RETRY_ATTEMPTS,
+                start_timeout=RETRY_START_TIMEOUT,
+                max_timeout=RETRY_MAX_TIMEOUT,
+                factor=RETRY_FACTOR,
+                statuses=set(),  # Retry all except NO_RETRY_STATUSES
+                exceptions={aiohttp.ClientError, TimeoutError},
+            )
+
+            self._retry_client = RetryClient(
+                client_session=self._session,
+                retry_options=retry_options,
+            )
+
+        return self._retry_client
+
     async def close(self) -> None:
-        if self._owns_session and self._session:
+        """Close the client and release resources."""
+        if self._retry_client is not None:
+            await self._retry_client.close()
+            self._retry_client = None
+
+        if self._owns_session and self._session is not None:
             await self._session.close()
             self._session = None
 
-    @property
-    def rate_limiter(self) -> RateLimiter:
-        return self._rate_limiter
-
-    def _headers(self) -> dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
+        """Get request headers with API key."""
         return {
             "Govee-API-Key": self._api_key,
             "Content-Type": "application/json",
+            "Accept": "application/json",
         }
 
-    async def _request(
+    def _update_rate_limits(self, headers: Any) -> None:
+        """Update rate limit tracking from response headers."""
+        if "X-RateLimit-Remaining" in headers:
+            try:
+                self.rate_limit_remaining = int(headers["X-RateLimit-Remaining"])
+            except (ValueError, TypeError):
+                pass
+
+        if "X-RateLimit-Limit" in headers:
+            try:
+                self.rate_limit_total = int(headers["X-RateLimit-Limit"])
+            except (ValueError, TypeError):
+                pass
+
+        if "X-RateLimit-Reset" in headers:
+            try:
+                self.rate_limit_reset = int(headers["X-RateLimit-Reset"])
+            except (ValueError, TypeError):
+                pass
+
+    async def _handle_response(
         self,
-        method: str,
-        endpoint: str,
-        json_data: dict[str, Any] | None = None,
+        response: aiohttp.ClientResponse,
     ) -> dict[str, Any]:
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-            self._owns_session = True
+        """Handle API response and raise appropriate exceptions.
 
-        await self._rate_limiter.acquire()
+        Args:
+            response: aiohttp response object.
 
-        url = f"{BASE_URL}/{endpoint}"
+        Returns:
+            Parsed JSON response data.
+
+        Raises:
+            GoveeAuthError: 401 Unauthorized.
+            GoveeRateLimitError: 429 Too Many Requests.
+            GoveeDeviceNotFoundError: 400 for missing device.
+            GoveeApiError: Other API errors.
+        """
+        self._update_rate_limits(response.headers)
 
         try:
-            async with async_timeout.timeout(REQUEST_TIMEOUT):
-                async with self._session.request(
-                    method,
-                    url,
-                    headers=self._headers(),
-                    json=json_data,
-                ) as response:
-                    self._rate_limiter.update_from_headers(dict(response.headers))
+            data = await response.json()
+        except aiohttp.ContentTypeError:
+            text = await response.text()
+            raise GoveeApiError(f"Invalid JSON response: {text[:200]}")
 
-                    try:
-                        data = await response.json()
-                    except aiohttp.ContentTypeError:
-                        data = {"message": await response.text()}
+        # Check HTTP status
+        if response.status == 401:
+            raise GoveeAuthError("Invalid API key")
 
-                    if response.status == 401:
-                        self._rate_limiter.record_failure()
-                        raise GoveeAuthError()
-                    if response.status == 429:
-                        self._rate_limiter.record_failure()
-                        retry_after = response.headers.get("Retry-After")
-                        raise GoveeRateLimitError(
-                            retry_after=float(retry_after) if retry_after else None
-                        )
-                    if response.status >= 400:
-                        self._rate_limiter.record_failure()
-                        message = data.get("message", f"HTTP {response.status}")
-                        raise GoveeApiError(message, code=response.status)
+        if response.status == 429:
+            retry_after = response.headers.get("Retry-After")
+            raise GoveeRateLimitError(
+                "Rate limit exceeded",
+                retry_after=float(retry_after) if retry_after else None,
+            )
 
-                    if data.get("code") and data.get("code") != 200:
-                        self._rate_limiter.record_failure()
-                        raise GoveeApiError(
-                            data.get("message", "Unknown error"),
-                            code=data.get("code"),
-                        )
+        if response.status == 400:
+            message = data.get("message", "Bad request")
+            # Check for "devices not exist" error (expected for groups)
+            if "not exist" in message.lower():
+                raise GoveeDeviceNotFoundError(message)
+            raise GoveeApiError(message, code=400)
 
-                    # Request succeeded
-                    self._rate_limiter.record_success()
-                    return cast(dict[str, Any], data)
+        if response.status >= 400:
+            message = data.get("message", f"HTTP {response.status}")
+            raise GoveeApiError(message, code=response.status)
 
-        except asyncio.TimeoutError as err:
-            self._rate_limiter.record_failure()
-            raise GoveeConnectionError("Request timed out") from err
-        except aiohttp.ClientError as err:
-            self._rate_limiter.record_failure()
-            raise GoveeConnectionError(str(err)) from err
+        # Check response code within JSON
+        code = data.get("code")
+        if code is not None and code != 200:
+            message = data.get("message", f"API error code {code}")
+            if code == 401:
+                raise GoveeAuthError(message)
+            raise GoveeApiError(message, code=code)
 
-    async def get_devices(self) -> list[dict[str, Any]]:
-        response = await self._request("GET", ENDPOINT_DEVICES)
-        data: list[dict[str, Any]] = response.get("data", [])
         return data
+
+    async def get_devices(self) -> list[GoveeDevice]:
+        """Fetch all devices from Govee API.
+
+        Returns:
+            List of GoveeDevice instances with capabilities.
+
+        Raises:
+            GoveeAuthError: Invalid API key.
+            GoveeConnectionError: Network error.
+            GoveeApiError: Other API errors.
+        """
+        client = await self._ensure_client()
+
+        try:
+            async with client.get(
+                ENDPOINT_DEVICES,
+                headers=self._get_headers(),
+            ) as response:
+                data = await self._handle_response(response)
+
+                devices = []
+                for device_data in data.get("data", []):
+                    try:
+                        device = GoveeDevice.from_api_response(device_data)
+                        devices.append(device)
+                    except Exception as err:
+                        _LOGGER.warning(
+                            "Failed to parse device %s: %s",
+                            device_data.get("device", "unknown"),
+                            err,
+                        )
+
+                _LOGGER.debug("Fetched %d devices from Govee API", len(devices))
+                return devices
+
+        except aiohttp.ClientError as err:
+            raise GoveeConnectionError(f"Connection error: {err}") from err
 
     async def get_device_state(
         self,
         device_id: str,
         sku: str,
-    ) -> dict[str, Any]:
+    ) -> GoveeDeviceState:
+        """Fetch current state for a device.
+
+        Args:
+            device_id: Device identifier (MAC address format).
+            sku: Device SKU/model number.
+
+        Returns:
+            GoveeDeviceState with current values.
+
+        Raises:
+            GoveeDeviceNotFoundError: Device not found (expected for groups).
+            GoveeApiError: Other API errors.
+        """
+        client = await self._ensure_client()
+
         payload = {
-            "requestId": str(uuid.uuid4()),
+            "requestId": "uuid",
             "payload": {
                 "sku": sku,
                 "device": device_id,
             },
         }
 
-        response = await self._request("POST", ENDPOINT_DEVICE_STATE, payload)
-        payload_data: dict[str, Any] = response.get("payload", {})
-        return payload_data
+        try:
+            async with client.post(
+                ENDPOINT_STATE,
+                headers=self._get_headers(),
+                json=payload,
+            ) as response:
+                data = await self._handle_response(response)
+
+                state = GoveeDeviceState.create_empty(device_id)
+                payload_data = data.get("payload", {})
+                state.update_from_api(payload_data)
+
+                return state
+
+        except aiohttp.ClientError as err:
+            raise GoveeConnectionError(f"Connection error: {err}") from err
 
     async def control_device(
         self,
         device_id: str,
         sku: str,
-        capability_type: str,
-        instance: str,
-        value: Any,
-    ) -> dict[str, Any]:
+        command: DeviceCommand,
+    ) -> bool:
+        """Send control command to device.
+
+        Args:
+            device_id: Device identifier.
+            sku: Device SKU.
+            command: Command to execute.
+
+        Returns:
+            True if command was accepted by API.
+
+        Raises:
+            GoveeApiError: If command fails.
+        """
+        client = await self._ensure_client()
+
+        # Build request payload
+        cmd_payload = command.to_api_payload()
         payload = {
-            "requestId": str(uuid.uuid4()),
+            "requestId": "uuid",
             "payload": {
                 "sku": sku,
                 "device": device_id,
-                "capability": {
-                    "type": capability_type,
-                    "instance": instance,
-                    "value": value,
-                },
+                "capability": cmd_payload,
             },
         }
 
-        _LOGGER.debug(
-            "Control device %s: %s.%s = %s",
-            device_id,
-            capability_type,
-            instance,
-            value,
-        )
+        try:
+            async with client.post(
+                ENDPOINT_CONTROL,
+                headers=self._get_headers(),
+                json=payload,
+            ) as response:
+                await self._handle_response(response)
+                return True
 
-        return await self._request("POST", ENDPOINT_DEVICE_CONTROL, payload)
-
-    async def turn_on(self, device_id: str, sku: str) -> dict[str, Any]:
-        from .const import CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH, 1
-        )
-
-    async def turn_off(self, device_id: str, sku: str) -> dict[str, Any]:
-        from .const import CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_ON_OFF, INSTANCE_POWER_SWITCH, 0
-        )
-
-    async def set_nightlight(
-        self, device_id: str, sku: str, on: bool
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_TOGGLE, INSTANCE_NIGHTLIGHT_TOGGLE
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_TOGGLE, INSTANCE_NIGHTLIGHT_TOGGLE, 1 if on else 0
-        )
-
-    async def set_brightness(
-        self, device_id: str, sku: str, brightness: int
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_RANGE, INSTANCE_BRIGHTNESS
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_RANGE, INSTANCE_BRIGHTNESS, brightness
-        )
-
-    async def set_color_rgb(
-        self, device_id: str, sku: str, rgb: tuple[int, int, int]
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_COLOR_SETTING, INSTANCE_COLOR_RGB
-
-        r, g, b = rgb
-        color_int = (r << 16) + (g << 8) + b
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_COLOR_SETTING, INSTANCE_COLOR_RGB, color_int
-        )
-
-    async def set_color_temp(
-        self, device_id: str, sku: str, temp_kelvin: int
-    ) -> dict[str, Any]:
-        from .const import (
-            CAPABILITY_COLOR_SETTING,
-            COLOR_TEMP_MAX,
-            COLOR_TEMP_MIN,
-            INSTANCE_COLOR_TEMP,
-        )
-
-        temp_kelvin = max(COLOR_TEMP_MIN, min(COLOR_TEMP_MAX, temp_kelvin))
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_COLOR_SETTING, INSTANCE_COLOR_TEMP, temp_kelvin
-        )
-
-    async def set_scene(
-        self, device_id: str, sku: str, scene_value: dict[str, Any]
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_DYNAMIC_SCENE, INSTANCE_LIGHT_SCENE
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_DYNAMIC_SCENE, INSTANCE_LIGHT_SCENE, scene_value
-        )
-
-    async def set_diy_scene(
-        self, device_id: str, sku: str, diy_value: dict[str, Any]
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_DYNAMIC_SCENE, INSTANCE_DIY_SCENE
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_DYNAMIC_SCENE, INSTANCE_DIY_SCENE, diy_value
-        )
-
-    async def set_segment_color(
-        self,
-        device_id: str,
-        sku: str,
-        segment: int,
-        rgb: tuple[int, int, int],
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_SEGMENT_COLOR, INSTANCE_SEGMENTED_COLOR
-
-        r, g, b = rgb
-        value = {
-            "segment": [segment],
-            "rgb": (r << 16) + (g << 8) + b,
-        }
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_SEGMENT_COLOR, INSTANCE_SEGMENTED_COLOR, value
-        )
-
-    async def set_segment_brightness(
-        self,
-        device_id: str,
-        sku: str,
-        segment: int,
-        brightness: int,
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_SEGMENT_COLOR, INSTANCE_SEGMENTED_BRIGHTNESS
-
-        value = {
-            "segment": [segment],
-            "brightness": brightness,
-        }
-
-        return await self.control_device(
-            device_id,
-            sku,
-            CAPABILITY_SEGMENT_COLOR,
-            INSTANCE_SEGMENTED_BRIGHTNESS,
-            value,
-        )
-
-    async def set_music_mode(
-        self,
-        device_id: str,
-        sku: str,
-        mode: str,
-        sensitivity: int = 50,
-        auto_color: bool = True,
-        rgb: tuple[int, int, int] | None = None,
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_MUSIC_SETTING, INSTANCE_MUSIC_MODE
-
-        value: dict[str, Any] = {
-            "musicMode": mode,
-            "sensitivity": sensitivity,
-            "autoColor": 1 if auto_color else 0,
-        }
-
-        if not auto_color and rgb:
-            r, g, b = rgb
-            value["color"] = (r << 16) + (g << 8) + b
-
-        return await self.control_device(
-            device_id, sku, CAPABILITY_MUSIC_SETTING, INSTANCE_MUSIC_MODE, value
-        )
+        except aiohttp.ClientError as err:
+            raise GoveeConnectionError(f"Connection error: {err}") from err
 
     async def get_dynamic_scenes(
-        self, device_id: str, sku: str
+        self,
+        device_id: str,
+        sku: str,
     ) -> list[dict[str, Any]]:
+        """Fetch available scenes for a device.
+
+        Args:
+            device_id: Device identifier.
+            sku: Device SKU.
+
+        Returns:
+            List of scene definitions with id, name, etc.
+        """
+        client = await self._ensure_client()
+
         payload = {
-            "requestId": str(uuid.uuid4()),
+            "requestId": "uuid",
             "payload": {
                 "sku": sku,
                 "device": device_id,
             },
         }
 
-        response = await self._request("POST", ENDPOINT_DYNAMIC_SCENES, payload)
-        capabilities = response.get("payload", {}).get("capabilities", [])
+        try:
+            async with client.post(
+                ENDPOINT_SCENES,
+                headers=self._get_headers(),
+                json=payload,
+            ) as response:
+                data = await self._handle_response(response)
 
-        scenes = []
-        for cap in capabilities:
-            if cap.get("instance") == "lightScene":
-                parameters = cap.get("parameters", {})
-                options = parameters.get("options", [])
-                scenes.extend(options)
+                scenes = []
+                capabilities = data.get("payload", {}).get("capabilities", [])
+                for cap in capabilities:
+                    if cap.get("type") == "devices.capabilities.dynamic_scene":
+                        params = cap.get("parameters", {})
+                        options = params.get("options", [])
+                        scenes.extend(options)
 
-        return scenes
+                _LOGGER.debug(
+                    "Fetched %d scenes for device %s",
+                    len(scenes),
+                    device_id,
+                )
+                return scenes
 
-    async def get_diy_scenes(self, device_id: str, sku: str) -> list[dict[str, Any]]:
-        payload = {
-            "requestId": str(uuid.uuid4()),
-            "payload": {
-                "sku": sku,
-                "device": device_id,
-            },
-        }
+        except GoveeDeviceNotFoundError:
+            _LOGGER.debug("No scenes available for device %s", device_id)
+            return []
+        except aiohttp.ClientError as err:
+            raise GoveeConnectionError(f"Connection error: {err}") from err
 
-        response = await self._request("POST", ENDPOINT_DIY_SCENES, payload)
-        capabilities = response.get("payload", {}).get("capabilities", [])
 
-        scenes = []
-        for cap in capabilities:
-            if cap.get("instance") == "diyScene":
-                parameters = cap.get("parameters", {})
-                options = parameters.get("options", [])
-                scenes.extend(options)
+async def validate_api_key(api_key: str) -> bool:
+    """Validate a Govee API key by making a test request.
 
-        return scenes
+    Args:
+        api_key: API key to validate.
 
-    async def set_snapshot(
-        self, device_id: str, sku: str, snapshot_value: dict[str, Any]
-    ) -> dict[str, Any]:
-        from .const import CAPABILITY_DYNAMIC_SCENE, INSTANCE_SNAPSHOT
+    Returns:
+        True if valid.
 
-        return await self.control_device(
-            device_id, sku, CAPABILITY_DYNAMIC_SCENE, INSTANCE_SNAPSHOT, snapshot_value
-        )
-
-    async def test_connection(self) -> bool:
-        await self.get_devices()
+    Raises:
+        GoveeAuthError: Invalid API key.
+        GoveeApiError: Other errors.
+    """
+    async with GoveeApiClient(api_key) as client:
+        # get_devices will raise GoveeAuthError if key is invalid
+        await client.get_devices()
         return True

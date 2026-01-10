@@ -1,57 +1,138 @@
+"""Switch platform for Govee integration.
+
+Provides switch entities for:
+- Smart plugs (on/off control)
+- Night light toggle (for lights with night light mode)
+"""
+
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import GoveeConfigEntry
-from .const import DEVICE_TYPE_LIGHT, DEVICE_TYPE_SOCKET
-from .entities import (
-    GoveeAirDeflectorSwitch,
-    GoveeGradientSwitch,
-    GoveeNightLightSwitch,
-    GoveeOscillationSwitch,
-    GoveeSwitchEntity,
-    GoveeThermostatSwitch,
-    GoveeWarmMistSwitch,
-)
+from .coordinator import GoveeCoordinator
+from .entity import GoveeEntity
+from .models import GoveeDevice, PowerCommand, create_night_light_command
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: GoveeConfigEntry,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator = entry.runtime_data.coordinator
-    devices = entry.runtime_data.devices
+    """Set up Govee switches from a config entry."""
+    coordinator: GoveeCoordinator = entry.runtime_data
 
     entities: list[SwitchEntity] = []
 
-    for device in devices.values():
-        if device.device_type == DEVICE_TYPE_SOCKET:
-            entities.append(GoveeSwitchEntity(coordinator, device))
+    for device in coordinator.devices.values():
+        # Create switch for smart plugs (power on/off)
+        if device.is_plug and device.supports_power:
+            entities.append(GoveePlugSwitchEntity(coordinator, device))
 
-        if device.device_type == DEVICE_TYPE_LIGHT and device.supports_nightlight:
-            entities.append(GoveeNightLightSwitch(coordinator, device))
+        # Create switch for night light toggle (lights with night light mode)
+        if device.supports_night_light:
+            entities.append(GoveeNightLightSwitchEntity(coordinator, device))
 
-        if device.supports_oscillation_toggle:
-            entities.append(GoveeOscillationSwitch(coordinator, device))
-
-        if device.supports_thermostat_toggle:
-            entities.append(GoveeThermostatSwitch(coordinator, device))
-
-        if device.supports_gradient_toggle:
-            entities.append(GoveeGradientSwitch(coordinator, device))
-
-        if device.supports_warm_mist_toggle:
-            entities.append(GoveeWarmMistSwitch(coordinator, device))
-
-        if device.supports_air_deflector_toggle:
-            entities.append(GoveeAirDeflectorSwitch(coordinator, device))
-
-    _LOGGER.debug("Adding %d switch entities", len(entities))
     async_add_entities(entities)
+    _LOGGER.debug("Set up %d Govee switch entities", len(entities))
+
+
+class GoveePlugSwitchEntity(GoveeEntity, SwitchEntity):
+    """Govee smart plug switch entity.
+
+    Controls power state for Govee smart plugs.
+    """
+
+    _attr_device_class = SwitchDeviceClass.OUTLET
+    _attr_translation_key = "govee_plug"
+
+    def __init__(
+        self,
+        coordinator: GoveeCoordinator,
+        device: GoveeDevice,
+    ) -> None:
+        """Initialize the plug switch entity."""
+        super().__init__(coordinator, device)
+
+        # Use device name as entity name
+        self._attr_name = None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if plug is on."""
+        state = self.device_state
+        return state.power_state if state else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the plug on."""
+        await self.coordinator.async_control_device(
+            self._device_id,
+            PowerCommand(power_on=True),
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the plug off."""
+        await self.coordinator.async_control_device(
+            self._device_id,
+            PowerCommand(power_on=False),
+        )
+
+
+class GoveeNightLightSwitchEntity(GoveeEntity, SwitchEntity):
+    """Govee night light toggle switch entity.
+
+    Controls night light mode for devices that support it.
+    Uses optimistic state since API may not return night light status.
+    """
+
+    _attr_translation_key = "govee_night_light"
+
+    def __init__(
+        self,
+        coordinator: GoveeCoordinator,
+        device: GoveeDevice,
+    ) -> None:
+        """Initialize the night light switch entity."""
+        super().__init__(coordinator, device)
+
+        # Unique ID for night light switch
+        self._attr_unique_id = f"{device.device_id}_night_light"
+
+        # Name as "Night Light"
+        self._attr_name = "Night Light"
+
+        # Optimistic state
+        self._is_on = False
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if night light is on."""
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn night light on."""
+        success = await self.coordinator.async_control_device(
+            self._device_id,
+            create_night_light_command(enabled=True),
+        )
+        if success:
+            self._is_on = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn night light off."""
+        success = await self.coordinator.async_control_device(
+            self._device_id,
+            create_night_light_command(enabled=False),
+        )
+        if success:
+            self._is_on = False
+            self.async_write_ha_state()

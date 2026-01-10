@@ -1,35 +1,45 @@
-"""Govee models."""
-from __future__ import annotations
+"""Domain models for Govee integration.
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeAlias
+All models are frozen dataclasses for immutability.
+"""
 
-from .device import GoveeDevice
-from .state import GoveeDeviceState
-
-if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
-
-    from ..api.client import GoveeApiClient
-    from ..coordinator import GoveeCoordinator
-
-
-@dataclass
-class GoveeRuntimeData:
-    """Runtime data for Govee integration."""
-
-    client: GoveeApiClient
-    coordinator: GoveeCoordinator
-    devices: dict[str, GoveeDevice]
-
-
-# TypeAlias syntax compatible with Python 3.10+
-GoveeConfigEntry: TypeAlias = "ConfigEntry[GoveeRuntimeData]"
-
+from .commands import (
+    BrightnessCommand,
+    ColorCommand,
+    ColorTempCommand,
+    DeviceCommand,
+    PowerCommand,
+    SceneCommand,
+    SegmentColorCommand,
+    ToggleCommand,
+    create_night_light_command,
+)
+from .device import (
+    ColorTempRange,
+    GoveeCapability,
+    GoveeDevice,
+    SegmentCapability,
+)
+from .state import GoveeDeviceState, RGBColor, SegmentState
 
 __all__ = [
+    # Device
     "GoveeDevice",
+    "GoveeCapability",
+    "ColorTempRange",
+    "SegmentCapability",
+    # State
     "GoveeDeviceState",
-    "GoveeRuntimeData",
-    "GoveeConfigEntry",
+    "RGBColor",
+    "SegmentState",
+    # Commands
+    "DeviceCommand",
+    "PowerCommand",
+    "BrightnessCommand",
+    "ColorCommand",
+    "ColorTempCommand",
+    "SceneCommand",
+    "SegmentColorCommand",
+    "ToggleCommand",
+    "create_night_light_command",
 ]

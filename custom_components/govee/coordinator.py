@@ -1,338 +1,448 @@
-"""Govee data update coordinator.
+"""DataUpdateCoordinator for Govee integration.
 
-Manages device state with two update strategies:
-1. AWS IoT MQTT (preferred): Real-time state push when email/password provided
-2. Polling fallback: REST API polling when only API key provided
-
-State management approach:
-- Main devices: Source-based (poll after command, no optimistic to avoid flipflop)
-- Segments/Groups/Scenes: Optimistic + RestoreEntity (API never returns this state)
+Manages device discovery, state polling, and MQTT integration.
+Implements IStateProvider protocol for clean architecture.
 """
+
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import logging
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import GoveeApiClient, GoveeApiError, GoveeAuthError, GoveeRateLimitError
+from .api import (
+    GoveeApiClient,
+    GoveeApiError,
+    GoveeAuthError,
+    GoveeAwsIotClient,
+    GoveeDeviceNotFoundError,
+    GoveeIotCredentials,
+    GoveeRateLimitError,
+)
+from .const import DOMAIN
 from .models import GoveeDevice, GoveeDeviceState
+from .protocols import IStateObserver
+from .repairs import (
+    async_create_auth_issue,
+    async_create_mqtt_issue,
+    async_create_rate_limit_issue,
+    async_delete_auth_issue,
+    async_delete_mqtt_issue,
+    async_delete_rate_limit_issue,
+)
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
-
-    from .api.auth import GoveeIotCredentials
-
-# Import at module level to avoid blocking I/O in event loop
-# (importlib_metadata does file operations when aiomqtt is imported)
-from .mqtt_iot import GoveeAwsIotClient
+    from .models.commands import DeviceCommand
 
 _LOGGER = logging.getLogger(__name__)
 
+# State fetch timeout per device
+STATE_FETCH_TIMEOUT = 30
+
 
 class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
-    """Coordinator for Govee device state updates.
+    """Coordinator for Govee device state management.
 
-    Supports two modes:
-    - Real-time: AWS IoT MQTT push (requires Govee email/password)
-    - Polling: REST API polling (API key only, fallback mode)
+    Features:
+    - Parallel state fetching for all devices
+    - MQTT integration for real-time updates
+    - Scene caching
+    - Optimistic state updates
+    - Group device handling
+
+    Implements IStateProvider protocol for entities.
     """
-
-    config_entry: ConfigEntry
 
     def __init__(
         self,
         hass: HomeAssistant,
         config_entry: ConfigEntry,
-        client: GoveeApiClient,
-        update_interval: timedelta,
+        api_client: GoveeApiClient,
+        iot_credentials: GoveeIotCredentials | None,
+        poll_interval: int,
+        enable_groups: bool = False,
     ) -> None:
+        """Initialize the coordinator.
+
+        Args:
+            hass: Home Assistant instance.
+            config_entry: Config entry for this integration.
+            api_client: Govee REST API client.
+            iot_credentials: Optional IoT credentials for MQTT.
+            poll_interval: Polling interval in seconds.
+            enable_groups: Whether to include group devices.
+        """
         super().__init__(
             hass,
             _LOGGER,
-            config_entry=config_entry,
-            name="Govee",
-            update_interval=update_interval,
-            always_update=False,  # Only notify when data changes
+            name=DOMAIN,
+            update_interval=asyncio.timedelta(seconds=poll_interval),
         )
-        self.client = client
-        self.devices: dict[str, GoveeDevice] = {}
-        self._iot_client: GoveeAwsIotClient | None = None
-        self._iot_credentials: GoveeIotCredentials | None = None
 
-    async def _async_setup(self) -> None:
-        """Fetch device list on first refresh."""
-        _LOGGER.debug("Fetching device list from Govee API")
+        self._config_entry = config_entry
+        self._api_client = api_client
+        self._iot_credentials = iot_credentials
+        self._enable_groups = enable_groups
 
-        try:
-            raw_devices = await self.client.get_devices()
-        except GoveeAuthError as err:
-            raise ConfigEntryAuthFailed("Invalid API key") from err
-        except GoveeApiError as err:
-            raise UpdateFailed(f"Failed to fetch devices: {err}") from err
+        # Device registry
+        self._devices: dict[str, GoveeDevice] = {}
 
-        for raw in raw_devices:
-            device = GoveeDevice.from_api(raw)
-            if device.is_supported:
-                self.devices[device.device_id] = device
-                _LOGGER.debug(
-                    "Discovered device: %s (%s) - %s",
-                    device.device_name,
-                    device.sku,
-                    device.device_type,
-                )
-            else:
-                _LOGGER.debug(
-                    "Skipping unsupported device: %s (%s)",
-                    device.device_name,
-                    device.sku,
-                )
+        # State cache
+        self._states: dict[str, GoveeDeviceState] = {}
 
-        _LOGGER.info("Discovered %d supported Govee devices", len(self.devices))
+        # Scene cache {device_id: [scenes]}
+        self._scene_cache: dict[str, list[dict[str, Any]]] = {}
 
-    async def _async_update_data(self) -> dict[str, GoveeDeviceState]:
-        """Poll device states from API.
+        # Observers for state changes
+        self._observers: list[IStateObserver] = []
 
-        This is the fallback when AWS IoT MQTT is not available.
-        When IoT is connected, polling frequency can be reduced.
-        """
-        if not self.devices:
-            await self._async_setup()
+        # MQTT client for real-time updates
+        self._mqtt_client: GoveeAwsIotClient | None = None
 
-        states: dict[str, GoveeDeviceState] = {}
+        # Track rate limit state to avoid spamming repair issues
+        self._rate_limited: bool = False
 
-        for device_id, device in self.devices.items():
-            # Skip group devices - they return 400 on state query
-            if device.is_group:
-                if self.data and device_id in self.data:
-                    states[device_id] = self.data[device_id]
-                else:
-                    states[device_id] = GoveeDeviceState(device_id=device_id, online=False)
-                continue
+    @property
+    def devices(self) -> dict[str, GoveeDevice]:
+        """Get all discovered devices."""
+        return self._devices
 
-            try:
-                raw = await self.client.get_device_state(device_id, device.sku)
-                new_state = GoveeDeviceState.from_api(device_id, raw)
+    @property
+    def states(self) -> dict[str, GoveeDeviceState]:
+        """Get current states for all devices."""
+        return self._states
 
-                # Preserve optimistic state (segments, scenes) from previous
-                if self.data and device_id in self.data:
-                    old_state = self.data[device_id]
-                    new_state.segment_colors = old_state.segment_colors
-                    new_state.segment_brightness = old_state.segment_brightness
-                    new_state.active_scene = old_state.active_scene
-                    new_state.active_scene_name = old_state.active_scene_name
-
-                states[device_id] = new_state
-
-            except GoveeRateLimitError as err:
-                _LOGGER.warning("Rate limited fetching %s: %s", device_id, err)
-                raise UpdateFailed(f"Rate limited: {err}") from err
-
-            except GoveeApiError as err:
-                _LOGGER.warning("Failed to get state for %s: %s", device_id, err)
-                # Preserve previous state on error
-                if self.data and device_id in self.data:
-                    states[device_id] = self.data[device_id]
-                else:
-                    states[device_id] = GoveeDeviceState(device_id=device_id, online=False)
-
-        return states
+    def get_device(self, device_id: str) -> GoveeDevice | None:
+        """Get device by ID."""
+        return self._devices.get(device_id)
 
     def get_state(self, device_id: str) -> GoveeDeviceState | None:
         """Get current state for a device."""
-        return self.data.get(device_id) if self.data else None
+        return self._states.get(device_id)
 
-    async def async_setup_iot(self, credentials: GoveeIotCredentials) -> None:
-        """Start AWS IoT MQTT client for real-time state updates.
+    def register_observer(self, observer: IStateObserver) -> None:
+        """Register a state change observer."""
+        if observer not in self._observers:
+            self._observers.append(observer)
 
-        Args:
-            credentials: IoT credentials from Govee login API
+    def unregister_observer(self, observer: IStateObserver) -> None:
+        """Unregister a state change observer."""
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+    def _notify_observers(self, device_id: str, state: GoveeDeviceState) -> None:
+        """Notify all observers of state change."""
+        for observer in self._observers:
+            try:
+                observer.on_state_changed(device_id, state)
+            except Exception as err:
+                _LOGGER.warning("Observer notification failed: %s", err)
+
+    async def async_setup(self) -> None:
+        """Set up the coordinator - discover devices and start MQTT.
+
+        Should be called once during integration setup.
         """
-        def on_state_update(device_id: str, state: dict[str, Any]) -> None:
-            """Handle real-time state update from AWS IoT.
+        # Discover devices
+        await self._discover_devices()
 
-            Schedules update on HA event loop to avoid race conditions
-            with concurrent coordinator updates.
-            """
-            # Schedule the update on the event loop to avoid race conditions
-            self.hass.loop.call_soon_threadsafe(
-                self._apply_iot_update, device_id, state
-            )
+        # Start MQTT client if credentials available
+        if self._iot_credentials:
+            await self._start_mqtt()
 
-        self._iot_credentials = credentials
-        self._iot_client = GoveeAwsIotClient(credentials, on_state_update)
-        await self._iot_client.async_start()
+    async def _discover_devices(self) -> None:
+        """Discover all devices from Govee API."""
+        try:
+            devices = await self._api_client.get_devices()
 
-        _LOGGER.info("AWS IoT MQTT enabled for real-time state updates")
+            for device in devices:
+                # Filter group devices unless enabled
+                if device.is_group and not self._enable_groups:
+                    _LOGGER.debug("Skipping group device: %s", device.name)
+                    continue
 
-    def _apply_iot_update(self, device_id: str, state: dict[str, Any]) -> None:
-        """Apply IoT state update (called from event loop).
+                self._devices[device.device_id] = device
+                # Create empty state for each device
+                self._states[device.device_id] = GoveeDeviceState.create_empty(
+                    device.device_id
+                )
 
-        Creates a new data dict to avoid mutating shared state directly.
-        """
-        if not self.data or device_id not in self.data:
+            _LOGGER.info("Discovered %d Govee devices", len(self._devices))
+
+            # Clear any auth issues on success
+            await async_delete_auth_issue(self.hass, self._config_entry)
+
+        except GoveeAuthError as err:
+            # Create repair issue for auth failure
+            await async_create_auth_issue(self.hass, self._config_entry)
+            raise ConfigEntryAuthFailed("Invalid API key") from err
+        except GoveeApiError as err:
+            raise UpdateFailed(f"Failed to discover devices: {err}") from err
+
+    async def _start_mqtt(self) -> None:
+        """Start MQTT client for real-time updates."""
+        if not self._iot_credentials:
             return
 
-        # Create shallow copy to avoid mutating shared state
-        new_data = dict(self.data)
-        device_state = new_data[device_id]
-        device_state.apply_iot_state(state)
+        self._mqtt_client = GoveeAwsIotClient(
+            credentials=self._iot_credentials,
+            on_state_update=self._on_mqtt_state_update,
+        )
 
-        # Push update to all listeners
-        self.async_set_updated_data(new_data)
-        _LOGGER.debug("Applied IoT state update for %s", device_id)
+        if self._mqtt_client.available:
+            try:
+                await self._mqtt_client.async_start()
+                _LOGGER.info("MQTT client started for real-time updates")
+                # Clear any MQTT issues on success
+                await async_delete_mqtt_issue(self.hass, self._config_entry)
+            except Exception as err:
+                _LOGGER.warning("MQTT client failed to start: %s", err)
+                await async_create_mqtt_issue(
+                    self.hass,
+                    self._config_entry,
+                    str(err),
+                )
+        else:
+            _LOGGER.warning("MQTT library not available")
 
-    async def async_stop_iot(self) -> None:
-        """Stop AWS IoT MQTT client."""
-        if self._iot_client:
-            await self._iot_client.async_stop()
-            self._iot_client = None
-            _LOGGER.debug("AWS IoT MQTT client stopped")
+    def _on_mqtt_state_update(self, device_id: str, state_data: dict[str, Any]) -> None:
+        """Handle state update from MQTT.
 
-    @property
-    def iot_connected(self) -> bool:
-        """Return True if AWS IoT MQTT is connected."""
-        return self._iot_client is not None and self._iot_client.connected
+        This is called from the MQTT client when a state message is received.
+        Updates internal state and notifies observers.
+        """
+        if device_id not in self._devices:
+            _LOGGER.debug("MQTT update for unknown device: %s", device_id)
+            return
 
-    async def async_send_command(
+        state = self._states.get(device_id)
+        if state is None:
+            state = GoveeDeviceState.create_empty(device_id)
+            self._states[device_id] = state
+
+        # Update state from MQTT data
+        state.update_from_mqtt(state_data)
+
+        # Update coordinator data and notify HA
+        self.async_set_updated_data(self._states)
+
+        # Notify observers
+        self._notify_observers(device_id, state)
+
+        _LOGGER.debug(
+            "MQTT state applied for %s: power=%s",
+            device_id,
+            state.power_state,
+        )
+
+    async def _async_update_data(self) -> dict[str, GoveeDeviceState]:
+        """Fetch state for all devices (parallel).
+
+        Called by DataUpdateCoordinator on poll interval.
+        """
+        if not self._devices:
+            return self._states
+
+        # Create tasks for parallel fetching
+        tasks = [
+            self._fetch_device_state(device_id, device)
+            for device_id, device in self._devices.items()
+        ]
+
+        # Wait for all with timeout
+        try:
+            async with asyncio.timeout(STATE_FETCH_TIMEOUT):
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+        except TimeoutError:
+            _LOGGER.warning("State fetch timed out after %ds", STATE_FETCH_TIMEOUT)
+            return self._states
+
+        # Process results
+        successful_updates = 0
+        for device_id, result in zip(self._devices.keys(), results):
+            if isinstance(result, GoveeDeviceState):
+                self._states[device_id] = result
+                successful_updates += 1
+            elif isinstance(result, GoveeAuthError):
+                await async_create_auth_issue(self.hass, self._config_entry)
+                raise ConfigEntryAuthFailed("Invalid API key") from result
+            elif isinstance(result, Exception):
+                _LOGGER.debug(
+                    "Failed to fetch state for %s: %s",
+                    device_id,
+                    result,
+                )
+                # Keep previous state on error
+
+        # Clear rate limit issue if we got successful updates
+        if successful_updates > 0 and self._rate_limited:
+            self._rate_limited = False
+            await async_delete_rate_limit_issue(self.hass, self._config_entry)
+
+        return self._states
+
+    async def _fetch_device_state(
         self,
         device_id: str,
-        capability_type: str,
-        instance: str,
-        value: Any,
-    ) -> None:
-        """Send command to device and refresh state.
-
-        Source-based approach: No optimistic update for main device state.
-        Polls API after command to get actual state.
+        device: GoveeDevice,
+    ) -> GoveeDeviceState | Exception:
+        """Fetch state for a single device.
 
         Args:
-            device_id: Target device ID
-            capability_type: Govee capability type
-            instance: Capability instance
-            value: Command value
+            device_id: Device identifier.
+            device: Device instance.
+
+        Returns:
+            GoveeDeviceState or Exception on error.
         """
-        device = self.devices.get(device_id)
+        try:
+            state = await self._api_client.get_device_state(device_id, device.sku)
+
+            # Preserve optimistic state for scenes (API doesn't return active scene)
+            existing_state = self._states.get(device_id)
+            if existing_state and existing_state.active_scene:
+                state.active_scene = existing_state.active_scene
+
+            return state
+
+        except GoveeDeviceNotFoundError:
+            # Expected for group devices - use existing/optimistic state
+            _LOGGER.debug("State query failed for group device %s [expected]", device_id)
+            existing = self._states.get(device_id)
+            if existing:
+                existing.online = True  # Group devices are always "available"
+                return existing
+            return GoveeDeviceState.create_empty(device_id)
+
+        except GoveeRateLimitError as err:
+            _LOGGER.warning("Rate limit hit, keeping previous state")
+            # Create rate limit repair issue (only once)
+            if not self._rate_limited:
+                self._rate_limited = True
+                reset_time = "unknown"
+                if err.retry_after:
+                    reset_time = f"{int(err.retry_after)} seconds"
+                self.hass.async_create_task(
+                    async_create_rate_limit_issue(
+                        self.hass,
+                        self._config_entry,
+                        reset_time,
+                    )
+                )
+            existing = self._states.get(device_id)
+            return existing if existing else GoveeDeviceState.create_empty(device_id)
+
+        except Exception as err:
+            return err
+
+    async def async_control_device(
+        self,
+        device_id: str,
+        command: DeviceCommand,
+    ) -> bool:
+        """Send control command to device with optimistic update.
+
+        Args:
+            device_id: Device identifier.
+            command: Command to execute.
+
+        Returns:
+            True if command succeeded.
+        """
+        device = self._devices.get(device_id)
         if not device:
-            _LOGGER.error("Device not found: %s", device_id)
-            return
+            _LOGGER.error("Unknown device: %s", device_id)
+            return False
 
         try:
-            await self.client.control_device(
+            success = await self._api_client.control_device(
                 device_id,
                 device.sku,
-                capability_type,
-                instance,
-                value,
+                command,
             )
 
-            # For IoT-connected devices, state push will come via MQTT
-            # For polling-only, request immediate refresh
-            if not self.iot_connected:
-                await self.async_request_refresh()
+            if success:
+                # Apply optimistic update
+                self._apply_optimistic_update(device_id, command)
+                self.async_set_updated_data(self._states)
 
+            return success
+
+        except GoveeAuthError as err:
+            raise ConfigEntryAuthFailed("Invalid API key") from err
         except GoveeApiError as err:
-            _LOGGER.error(
-                "Failed to control device %s (%s.%s = %s): %s",
-                device_id,
-                capability_type,
-                instance,
-                value,
-                err,
-            )
-            raise
+            _LOGGER.error("Control command failed: %s", err)
+            return False
 
-    async def async_set_segment_color(
+    def _apply_optimistic_update(
         self,
         device_id: str,
-        segment: int,
-        rgb: tuple[int, int, int],
+        command: DeviceCommand,
     ) -> None:
-        """Set segment color with optimistic update.
+        """Apply optimistic state update based on command."""
+        state = self._states.get(device_id)
+        if not state:
+            return
 
-        Segments use optimistic state because API never returns segment state.
+        # Import here to avoid circular dependency
+        from .models.commands import (
+            BrightnessCommand,
+            ColorCommand,
+            ColorTempCommand,
+            PowerCommand,
+            SceneCommand,
+        )
+
+        if isinstance(command, PowerCommand):
+            state.apply_optimistic_power(command.power_on)
+        elif isinstance(command, BrightnessCommand):
+            state.apply_optimistic_brightness(command.brightness)
+        elif isinstance(command, ColorCommand):
+            state.apply_optimistic_color(command.color)
+        elif isinstance(command, ColorTempCommand):
+            state.apply_optimistic_color_temp(command.kelvin)
+        elif isinstance(command, SceneCommand):
+            state.apply_optimistic_scene(str(command.scene_id))
+
+    async def async_get_scenes(
+        self,
+        device_id: str,
+        refresh: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Get available scenes for a device.
+
+        Args:
+            device_id: Device identifier.
+            refresh: Force refresh from API.
+
+        Returns:
+            List of scene definitions.
         """
-        device = self.devices.get(device_id)
-        if not device:
-            return
+        if not refresh and device_id in self._scene_cache:
+            return self._scene_cache[device_id]
 
-        try:
-            await self.client.set_segment_color(device_id, device.sku, segment, rgb)
-
-            # Optimistic update - create new dict to avoid mutating shared state
-            if self.data and device_id in self.data:
-                new_data = dict(self.data)
-                new_data[device_id].set_segment_color(segment, rgb)
-                self.async_set_updated_data(new_data)
-
-        except GoveeApiError as err:
-            _LOGGER.error("Failed to set segment %d color: %s", segment, err)
-            raise
-
-    async def async_set_segment_brightness(
-        self,
-        device_id: str,
-        segment: int,
-        brightness: int,
-    ) -> None:
-        """Set segment brightness with optimistic update."""
-        device = self.devices.get(device_id)
-        if not device:
-            return
-
-        try:
-            await self.client.set_segment_brightness(device_id, device.sku, segment, brightness)
-
-            # Optimistic update - create new dict to avoid mutating shared state
-            if self.data and device_id in self.data:
-                new_data = dict(self.data)
-                new_data[device_id].set_segment_brightness(segment, brightness)
-                self.async_set_updated_data(new_data)
-
-        except GoveeApiError as err:
-            _LOGGER.error("Failed to set segment %d brightness: %s", segment, err)
-            raise
-
-    async def async_set_scene(
-        self,
-        device_id: str,
-        scene_value: dict[str, Any],
-        scene_name: str | None = None,
-    ) -> None:
-        """Set scene with optimistic update.
-
-        Scenes use optimistic state because API never returns active scene.
-        """
-        device = self.devices.get(device_id)
-        if not device:
-            return
-
-        try:
-            await self.client.set_scene(device_id, device.sku, scene_value)
-
-            # Optimistic update - create new dict to avoid mutating shared state
-            scene_id = str(scene_value.get("id", scene_value.get("paramId", "")))
-            if self.data and device_id in self.data:
-                new_data = dict(self.data)
-                new_data[device_id].set_scene(scene_id, scene_name)
-                self.async_set_updated_data(new_data)
-
-        except GoveeApiError as err:
-            _LOGGER.error("Failed to set scene: %s", err)
-            raise
-
-    async def async_get_dynamic_scenes(self, device_id: str) -> list[dict[str, Any]]:
-        """Get dynamic scenes for a device."""
-        device = self.devices.get(device_id)
+        device = self._devices.get(device_id)
         if not device:
             return []
 
         try:
-            return await self.client.get_dynamic_scenes(device_id, device.sku)
+            scenes = await self._api_client.get_dynamic_scenes(device_id, device.sku)
+            self._scene_cache[device_id] = scenes
+            return scenes
         except GoveeApiError as err:
-            _LOGGER.warning("Failed to get scenes for %s: %s", device_id, err)
-            return []
+            _LOGGER.warning("Failed to fetch scenes for %s: %s", device_id, err)
+            return self._scene_cache.get(device_id, [])
+
+    async def async_shutdown(self) -> None:
+        """Shutdown coordinator and cleanup resources."""
+        if self._mqtt_client:
+            await self._mqtt_client.async_stop()
+            self._mqtt_client = None
+
+        await self._api_client.close()

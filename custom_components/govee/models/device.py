@@ -1,121 +1,276 @@
-"""Govee device model."""
+"""Device model representing a Govee device and its capabilities.
+
+Frozen dataclass for immutability - device properties don't change at runtime.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-UNSUPPORTED_SKUS = {"SameModeGroup", "BaseGroup", "DreamViewScenic"}
+# Capability type constants (from Govee API v2.0)
+CAPABILITY_ON_OFF = "devices.capabilities.on_off"
+CAPABILITY_RANGE = "devices.capabilities.range"
+CAPABILITY_COLOR_SETTING = "devices.capabilities.color_setting"
+CAPABILITY_SEGMENT_COLOR = "devices.capabilities.segment_color_setting"
+CAPABILITY_DYNAMIC_SCENE = "devices.capabilities.dynamic_scene"
+CAPABILITY_DIY_SCENE = "devices.capabilities.diy_scene"
+CAPABILITY_MUSIC_MODE = "devices.capabilities.music_setting"
+CAPABILITY_TOGGLE = "devices.capabilities.toggle"
+CAPABILITY_WORK_MODE = "devices.capabilities.work_mode"
+CAPABILITY_PROPERTY = "devices.capabilities.property"
+
+# Device type constants
+DEVICE_TYPE_LIGHT = "devices.types.light"
+DEVICE_TYPE_PLUG = "devices.types.socket"
+DEVICE_TYPE_HEATER = "devices.types.heater"
+DEVICE_TYPE_HUMIDIFIER = "devices.types.humidifier"
+
+# Instance constants
+INSTANCE_POWER = "powerSwitch"
+INSTANCE_BRIGHTNESS = "brightness"
+INSTANCE_COLOR_RGB = "colorRgb"
+INSTANCE_COLOR_TEMP = "colorTemperatureK"
+INSTANCE_SEGMENT_COLOR = "segmentedColorRgb"
+INSTANCE_SCENE = "lightScene"
+INSTANCE_DIY = "diyScene"
+INSTANCE_NIGHT_LIGHT = "nightlightToggle"
+INSTANCE_GRADUAL_ON = "gradientToggle"
+INSTANCE_TIMER = "timer"
 
 
-@dataclass
+@dataclass(frozen=True)
+class ColorTempRange:
+    """Color temperature range in Kelvin."""
+
+    min_kelvin: int
+    max_kelvin: int
+
+    @classmethod
+    def from_capability(cls, capability: dict[str, Any]) -> ColorTempRange | None:
+        """Parse from capability parameters."""
+        params = capability.get("parameters", {})
+        range_data = params.get("range", {})
+        min_k = range_data.get("min")
+        max_k = range_data.get("max")
+        if min_k is not None and max_k is not None:
+            return cls(min_kelvin=int(min_k), max_kelvin=int(max_k))
+        return None
+
+
+@dataclass(frozen=True)
+class SegmentCapability:
+    """Segment control capability for RGBIC devices."""
+
+    segment_count: int
+
+    @classmethod
+    def from_capability(cls, capability: dict[str, Any]) -> SegmentCapability | None:
+        """Parse from capability parameters."""
+        params = capability.get("parameters", {})
+        # Segment count may be in 'segmentCount' or inferred from array
+        count = params.get("segmentCount", 0)
+        if not count:
+            # Try to get from fields array length
+            fields = params.get("fields", [])
+            for f in fields:
+                if f.get("fieldName") == "segment":
+                    options = f.get("options", [])
+                    if options:
+                        count = len(options)
+                        break
+        return cls(segment_count=count) if count else None
+
+
+@dataclass(frozen=True)
+class GoveeCapability:
+    """Represents a device capability from Govee API."""
+
+    type: str
+    instance: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_power(self) -> bool:
+        """Check if this is a power on/off capability."""
+        return self.type == CAPABILITY_ON_OFF and self.instance == INSTANCE_POWER
+
+    @property
+    def is_brightness(self) -> bool:
+        """Check if this is a brightness capability."""
+        return self.type == CAPABILITY_RANGE and self.instance == INSTANCE_BRIGHTNESS
+
+    @property
+    def is_color_rgb(self) -> bool:
+        """Check if this is an RGB color capability."""
+        return self.type == CAPABILITY_COLOR_SETTING and self.instance == INSTANCE_COLOR_RGB
+
+    @property
+    def is_color_temp(self) -> bool:
+        """Check if this is a color temperature capability."""
+        return self.type == CAPABILITY_COLOR_SETTING and self.instance == INSTANCE_COLOR_TEMP
+
+    @property
+    def is_segment_color(self) -> bool:
+        """Check if this is a segment color capability."""
+        return self.type == CAPABILITY_SEGMENT_COLOR
+
+    @property
+    def is_scene(self) -> bool:
+        """Check if this is a scene capability."""
+        return self.type == CAPABILITY_DYNAMIC_SCENE
+
+    @property
+    def is_toggle(self) -> bool:
+        """Check if this is a toggle capability."""
+        return self.type == CAPABILITY_TOGGLE
+
+    @property
+    def is_night_light(self) -> bool:
+        """Check if this is a night light toggle."""
+        return self.type == CAPABILITY_TOGGLE and self.instance == INSTANCE_NIGHT_LIGHT
+
+    @property
+    def brightness_range(self) -> tuple[int, int]:
+        """Get brightness min/max range. Default (0, 100)."""
+        if not self.is_brightness:
+            return (0, 100)
+        range_data = self.parameters.get("range", {})
+        return (
+            int(range_data.get("min", 0)),
+            int(range_data.get("max", 100)),
+        )
+
+
+@dataclass(frozen=True)
 class GoveeDevice:
-    """Govee device metadata from API."""
+    """Represents a Govee device with its static properties.
+
+    Frozen for immutability - device capabilities don't change at runtime.
+    """
 
     device_id: str
     sku: str
-    device_name: str
+    name: str
     device_type: str
-    capabilities: list[dict[str, Any]] = field(default_factory=list)
-    firmware_version: str | None = None
-
-    @classmethod
-    def from_api(cls, data: dict[str, Any]) -> GoveeDevice:
-        """Create device from API response."""
-        return cls(
-            device_id=data.get("device", ""),
-            sku=data.get("sku", ""),
-            device_name=data.get("deviceName", data.get("device", "Unknown")),
-            device_type=data.get("type", ""),
-            capabilities=data.get("capabilities", []),
-            firmware_version=data.get("version"),
-        )
+    capabilities: tuple[GoveeCapability, ...] = field(default_factory=tuple)
+    is_group: bool = False
 
     @property
-    def is_supported(self) -> bool:
-        """Check if device is supported."""
-        return self.sku not in UNSUPPORTED_SKUS
-
-    @property
-    def is_group(self) -> bool:
-        """Check if device is a group (can't be polled for state)."""
-        return self.sku in UNSUPPORTED_SKUS
-
-    @property
-    def is_light(self) -> bool:
-        """Check if device is a light."""
-        return self.device_type == "devices.types.light"
-
-    def has_capability(self, instance: str) -> bool:
-        """Check if device has a capability by instance name."""
-        return any(c.get("instance") == instance for c in self.capabilities)
-
-    def get_capability(self, instance: str) -> dict[str, Any] | None:
-        """Get capability by instance name."""
-        for cap in self.capabilities:
-            if cap.get("instance") == instance:
-                return cap
-        return None
+    def supports_power(self) -> bool:
+        """Check if device supports on/off control."""
+        return any(cap.is_power for cap in self.capabilities)
 
     @property
     def supports_brightness(self) -> bool:
         """Check if device supports brightness control."""
-        return self.has_capability("brightness")
+        return any(cap.is_brightness for cap in self.capabilities)
 
     @property
-    def supports_color(self) -> bool:
+    def supports_rgb(self) -> bool:
         """Check if device supports RGB color."""
-        return self.has_capability("colorRgb")
+        return any(cap.is_color_rgb for cap in self.capabilities)
 
     @property
     def supports_color_temp(self) -> bool:
         """Check if device supports color temperature."""
-        return self.has_capability("colorTemperatureK")
+        return any(cap.is_color_temp for cap in self.capabilities)
 
     @property
     def supports_segments(self) -> bool:
-        """Check if device supports segment control."""
-        return self.has_capability("segmentedColorRgb")
+        """Check if device supports segment control (RGBIC)."""
+        return any(cap.is_segment_color for cap in self.capabilities)
 
     @property
     def supports_scenes(self) -> bool:
-        """Check if device supports scenes."""
-        return self.has_capability("lightScene")
+        """Check if device supports dynamic scenes."""
+        return any(cap.is_scene for cap in self.capabilities)
+
+    @property
+    def supports_night_light(self) -> bool:
+        """Check if device supports night light toggle."""
+        return any(cap.is_night_light for cap in self.capabilities)
+
+    @property
+    def is_plug(self) -> bool:
+        """Check if device is a smart plug."""
+        return self.device_type == DEVICE_TYPE_PLUG
+
+    @property
+    def is_light_device(self) -> bool:
+        """Check if device is a light (not a plug or other appliance)."""
+        return self.device_type == DEVICE_TYPE_LIGHT or self.supports_rgb or self.supports_color_temp
+
+    @property
+    def brightness_range(self) -> tuple[int, int]:
+        """Get brightness range from capability. Default (0, 100)."""
+        for cap in self.capabilities:
+            if cap.is_brightness:
+                return cap.brightness_range
+        return (0, 100)
+
+    @property
+    def color_temp_range(self) -> ColorTempRange | None:
+        """Get color temperature range if supported."""
+        for cap in self.capabilities:
+            if cap.is_color_temp:
+                return ColorTempRange.from_capability({"parameters": cap.parameters})
+        return None
 
     @property
     def segment_count(self) -> int:
-        """Get number of segments if segmented device."""
-        cap = self.get_capability("segmentedColorRgb")
-        if not cap:
-            return 0
-
-        fields = cap.get("parameters", {}).get("fields", [])
-        for f in fields:
-            if f.get("fieldName") == "segment":
-                elem_range = f.get("elementRange", {})
-                return elem_range.get("max", 0) + 1
+        """Get number of segments for RGBIC devices."""
+        for cap in self.capabilities:
+            if cap.is_segment_color:
+                seg = SegmentCapability.from_capability({"parameters": cap.parameters})
+                return seg.segment_count if seg else 0
         return 0
 
-    def get_brightness_range(self) -> tuple[int, int]:
-        """Get brightness range (min, max)."""
-        cap = self.get_capability("brightness")
-        if cap:
-            params = cap.get("parameters", {})
-            range_info = params.get("range", {})
-            return (range_info.get("min", 0), range_info.get("max", 100))
-        return (0, 100)
+    def get_capability(self, cap_type: str, instance: str) -> GoveeCapability | None:
+        """Get a specific capability by type and instance."""
+        for cap in self.capabilities:
+            if cap.type == cap_type and cap.instance == instance:
+                return cap
+        return None
 
-    def get_color_temp_range(self) -> tuple[int, int]:
-        """Get color temperature range in Kelvin (min, max)."""
-        cap = self.get_capability("colorTemperatureK")
-        if cap:
-            params = cap.get("parameters", {})
-            range_info = params.get("range", {})
-            return (range_info.get("min", 2000), range_info.get("max", 9000))
-        return (2000, 9000)
+    @classmethod
+    def from_api_response(cls, data: dict[str, Any]) -> GoveeDevice:
+        """Create GoveeDevice from API response data.
 
-    def get_scene_options(self) -> list[dict[str, Any]]:
-        """Get available scene options."""
-        cap = self.get_capability("lightScene")
-        if cap:
-            return cap.get("parameters", {}).get("options", [])
-        return []
+        Args:
+            data: Device dict from /user/devices endpoint.
+
+        Returns:
+            GoveeDevice instance.
+        """
+        device_id = data.get("device", "")
+        sku = data.get("sku", "")
+        name = data.get("deviceName", sku)
+        device_type = data.get("type", "devices.types.light")
+
+        # Check for group device types
+        is_group = device_type in (
+            "devices.types.group",
+            "devices.types.same_mode_group",
+            "devices.types.scenic_group",
+        )
+
+        # Parse capabilities
+        raw_caps = data.get("capabilities", [])
+        capabilities = []
+        for raw_cap in raw_caps:
+            cap = GoveeCapability(
+                type=raw_cap.get("type", ""),
+                instance=raw_cap.get("instance", ""),
+                parameters=raw_cap.get("parameters", {}),
+            )
+            capabilities.append(cap)
+
+        return cls(
+            device_id=device_id,
+            sku=sku,
+            name=name,
+            device_type=device_type,
+            capabilities=tuple(capabilities),
+            is_group=is_group,
+        )

@@ -1,105 +1,185 @@
-"""Govee device state model."""
+"""Device state models.
+
+Mutable state that changes with device updates from API or MQTT.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
 
+@dataclass(frozen=True)
+class RGBColor:
+    """Immutable RGB color representation."""
+
+    r: int
+    g: int
+    b: int
+
+    def __post_init__(self) -> None:
+        """Validate color values are in range."""
+        # Use object.__setattr__ because dataclass is frozen
+        object.__setattr__(self, "r", max(0, min(255, self.r)))
+        object.__setattr__(self, "g", max(0, min(255, self.g)))
+        object.__setattr__(self, "b", max(0, min(255, self.b)))
+
+    @property
+    def as_tuple(self) -> tuple[int, int, int]:
+        """Return as (r, g, b) tuple."""
+        return (self.r, self.g, self.b)
+
+    @property
+    def as_packed_int(self) -> int:
+        """Return as packed integer for Govee API: (R << 16) + (G << 8) + B."""
+        return (self.r << 16) + (self.g << 8) + self.b
+
+    @classmethod
+    def from_packed_int(cls, value: int) -> RGBColor:
+        """Create from Govee API packed integer."""
+        r = (value >> 16) & 0xFF
+        g = (value >> 8) & 0xFF
+        b = value & 0xFF
+        return cls(r=r, g=g, b=b)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, int]) -> RGBColor:
+        """Create from dict with r, g, b keys."""
+        return cls(
+            r=data.get("r", 0),
+            g=data.get("g", 0),
+            b=data.get("b", 0),
+        )
+
+
+@dataclass(frozen=True)
+class SegmentState:
+    """State of a single segment in RGBIC device."""
+
+    index: int
+    color: RGBColor
+    brightness: int = 100
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], index: int) -> SegmentState:
+        """Create from segment dict."""
+        color = RGBColor.from_dict(data.get("color", {}))
+        brightness = data.get("brightness", 100)
+        return cls(index=index, color=color, brightness=brightness)
+
+
 @dataclass
 class GoveeDeviceState:
-    """Device state from API polling or AWS IoT MQTT."""
+    """Mutable device state updated from API or MQTT.
+
+    Unlike GoveeDevice (frozen), state changes frequently and needs
+    to be updated in-place for performance.
+    """
 
     device_id: str
     online: bool = True
-    power_state: bool | None = None
-    brightness: int | None = None  # 0-100
-    color_rgb: tuple[int, int, int] | None = None
+    power_state: bool = False
+    brightness: int = 100
+    color: RGBColor | None = None
     color_temp_kelvin: int | None = None
-
-    # Segment state (optimistic only - API never returns this)
-    segment_colors: dict[int, tuple[int, int, int]] = field(default_factory=dict)
-    segment_brightness: dict[int, int] = field(default_factory=dict)
-
-    # Scene state (optimistic only - API never returns active scene)
     active_scene: str | None = None
-    active_scene_name: str | None = None
+    segments: list[SegmentState] = field(default_factory=list)
+
+    # Source tracking for state management
+    # "api" = from REST poll, "mqtt" = from push, "optimistic" = from command
+    source: str = "api"
+
+    def update_from_api(self, data: dict[str, Any]) -> None:
+        """Update state from API response.
+
+        Args:
+            data: Device state dict from /device/state endpoint.
+        """
+        self.source = "api"
+
+        # Parse capabilities array for state values
+        capabilities = data.get("capabilities", [])
+        for cap in capabilities:
+            cap_type = cap.get("type", "")
+            instance = cap.get("instance", "")
+            state = cap.get("state", {})
+            value = state.get("value")
+
+            if cap_type == "devices.capabilities.online":
+                self.online = bool(value)
+
+            elif cap_type == "devices.capabilities.on_off":
+                if instance == "powerSwitch":
+                    self.power_state = bool(value)
+
+            elif cap_type == "devices.capabilities.range":
+                if instance == "brightness":
+                    self.brightness = int(value) if value is not None else 100
+
+            elif cap_type == "devices.capabilities.color_setting":
+                if instance == "colorRgb":
+                    if isinstance(value, int):
+                        self.color = RGBColor.from_packed_int(value)
+                    elif isinstance(value, dict):
+                        self.color = RGBColor.from_dict(value)
+                elif instance == "colorTemperatureK":
+                    self.color_temp_kelvin = int(value) if value is not None else None
+
+    def update_from_mqtt(self, data: dict[str, Any]) -> None:
+        """Update state from MQTT push message.
+
+        MQTT format differs from REST API - uses onOff/brightness/color keys.
+
+        Args:
+            data: State dict from MQTT message.
+        """
+        self.source = "mqtt"
+
+        if "onOff" in data:
+            self.power_state = bool(data["onOff"])
+
+        if "brightness" in data:
+            self.brightness = int(data["brightness"])
+
+        if "color" in data:
+            color_data = data["color"]
+            if isinstance(color_data, dict):
+                self.color = RGBColor.from_dict(color_data)
+            elif isinstance(color_data, int):
+                self.color = RGBColor.from_packed_int(color_data)
+
+        if "colorTemInKelvin" in data:
+            temp = data["colorTemInKelvin"]
+            self.color_temp_kelvin = int(temp) if temp else None
+
+    def apply_optimistic_power(self, power_on: bool) -> None:
+        """Apply optimistic power state update."""
+        self.power_state = power_on
+        self.source = "optimistic"
+
+    def apply_optimistic_brightness(self, brightness: int) -> None:
+        """Apply optimistic brightness update."""
+        self.brightness = brightness
+        self.source = "optimistic"
+
+    def apply_optimistic_color(self, color: RGBColor) -> None:
+        """Apply optimistic color update."""
+        self.color = color
+        self.color_temp_kelvin = None  # RGB mode
+        self.source = "optimistic"
+
+    def apply_optimistic_color_temp(self, kelvin: int) -> None:
+        """Apply optimistic color temperature update."""
+        self.color_temp_kelvin = kelvin
+        self.color = None  # Color temp mode
+        self.source = "optimistic"
+
+    def apply_optimistic_scene(self, scene_id: str) -> None:
+        """Apply optimistic scene activation."""
+        self.active_scene = scene_id
+        self.source = "optimistic"
 
     @classmethod
-    def from_api(cls, device_id: str, payload: dict[str, Any]) -> GoveeDeviceState:
-        """Create state from API response."""
-        state = cls(device_id=device_id)
-
-        for cap in payload.get("capabilities", []):
-            instance = cap.get("instance", "")
-            value = cap.get("state", {}).get("value")
-
-            if value is None:
-                continue
-
-            if instance == "powerSwitch":
-                state.power_state = value == 1
-            elif instance == "brightness":
-                state.brightness = int(value)
-            elif instance == "colorRgb":
-                state.color_rgb = cls._parse_rgb(value)
-            elif instance == "colorTemperatureK":
-                state.color_temp_kelvin = int(value)
-            elif instance == "online":
-                state.online = value == 1 or value is True
-
-        return state
-
-    @staticmethod
-    def _parse_rgb(value: int | dict[str, Any]) -> tuple[int, int, int]:
-        """Parse RGB from API format."""
-        if isinstance(value, dict):
-            return (value.get("r", 0), value.get("g", 0), value.get("b", 0))
-        # Integer format: 0xRRGGBB
-        return ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF)
-
-    def apply_iot_state(self, iot_state: dict[str, Any]) -> None:
-        """Apply state update from AWS IoT MQTT.
-
-        AWS IoT state format:
-        {"onOff": 1, "brightness": 50, "color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0}
-        """
-        if "onOff" in iot_state:
-            self.power_state = iot_state["onOff"] == 1
-
-        if "brightness" in iot_state:
-            self.brightness = int(iot_state["brightness"])
-
-        if "color" in iot_state:
-            color = iot_state["color"]
-            if isinstance(color, dict):
-                self.color_rgb = (color.get("r", 0), color.get("g", 0), color.get("b", 0))
-            elif isinstance(color, int):
-                self.color_rgb = self._parse_rgb(color)
-
-        if "colorTemInKelvin" in iot_state:
-            temp = iot_state["colorTemInKelvin"]
-            if temp > 0:  # 0 means RGB mode, not color temp
-                self.color_temp_kelvin = int(temp)
-
-    def set_segment_color(self, segment: int, rgb: tuple[int, int, int]) -> None:
-        """Set optimistic segment color (API never returns this)."""
-        self.segment_colors[segment] = rgb
-
-    def set_segment_brightness(self, segment: int, brightness: int) -> None:
-        """Set optimistic segment brightness (API never returns this)."""
-        self.segment_brightness[segment] = brightness
-
-    def clear_segments(self) -> None:
-        """Clear segment state when main light color changes."""
-        self.segment_colors.clear()
-        self.segment_brightness.clear()
-
-    def set_scene(self, scene_id: str, scene_name: str | None = None) -> None:
-        """Set optimistic scene state (API never returns active scene)."""
-        self.active_scene = scene_id
-        self.active_scene_name = scene_name
-
-    def clear_scene(self) -> None:
-        """Clear scene state when color/brightness manually changed."""
-        self.active_scene = None
-        self.active_scene_name = None
+    def create_empty(cls, device_id: str) -> GoveeDeviceState:
+        """Create empty state for a device."""
+        return cls(device_id=device_id)

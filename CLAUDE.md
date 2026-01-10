@@ -1,71 +1,165 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Instructions for Claude Code when working with this repository.
 
 ## Project Overview
 
-This is a Home Assistant Custom Component (HACS integration) for controlling Govee lights, LED strips, and smart devices via the Govee Cloud API v2.0. The integration includes its own built-in API client.
+**Govee Integration for Home Assistant** - A HACS custom component that controls Govee lights, LED strips, and smart devices via the Govee Cloud API v2.0.
 
-## Build and Test Commands
+| Attribute | Value |
+|-----------|-------|
+| Type | Home Assistant Custom Component |
+| Language | Python 3.12+ |
+| Integration Type | Hub (cloud service) |
+| IoT Class | cloud_push (MQTT + polling) |
+| API Version | Govee API v2.0 |
+
+## Quick Commands
 
 ```bash
-# Install test dependencies
-pip install -r requirements_test.txt
-
-# Run all tests with tox (includes flake8 linting + pytest)
+# Run tests (recommended)
 tox
 
 # Run pytest directly
 pytest
 
-# Run a single test file
+# Single test file
 pytest tests/test_config_flow.py
 
-# Run a specific test
-pytest tests/test_config_flow.py::test_form
+# Single test
+pytest tests/test_models.py::TestRGBColor::test_valid_color
 
-# Format code with black
+# Format code
 black .
 
-# Check linting
+# Lint
 flake8 .
+
+# Type check
+mypy custom_components/govee
 ```
 
-## Architecture
+## Directory Structure
 
-### Component Structure (`custom_components/govee/`)
+```
+custom_components/govee/
+├── __init__.py          # Entry point, async_setup_entry
+├── config_flow.py       # Config/options/reauth/reconfigure flows
+├── coordinator.py       # DataUpdateCoordinator with MQTT
+├── entity.py            # Base GoveeEntity class
+├── light.py             # Light platform
+├── scene.py             # Scene platform
+├── switch.py            # Switch platform (plugs, night light)
+├── sensor.py            # Diagnostic sensors
+├── button.py            # Refresh scenes button
+├── services.py          # Custom services
+├── repairs.py           # Repairs framework integration
+├── diagnostics.py       # Diagnostics for troubleshooting
+├── const.py             # Constants
+├── models/              # Domain models (frozen dataclasses)
+│   ├── device.py        # GoveeDevice, GoveeCapability
+│   ├── state.py         # GoveeDeviceState, RGBColor
+│   └── commands.py      # Command pattern implementations
+├── protocols/           # Protocol interfaces (Clean Architecture)
+│   ├── api.py           # IApiClient, IAuthProvider
+│   └── state.py         # IStateProvider, IStateObserver
+└── api/                 # API layer
+    ├── client.py        # GoveeApiClient (REST)
+    ├── auth.py          # GoveeAuthClient (account login)
+    ├── mqtt.py          # GoveeAwsIotClient (AWS IoT MQTT)
+    └── exceptions.py    # Exception hierarchy
+```
 
-- **`__init__.py`**: Entry point for Home Assistant. Handles `async_setup_entry` to initialize the integration when configured via UI. Sets up the Govee API client and forwards platform setup to the light platform.
+## Architecture Patterns
 
-- **`light.py`**: Core platform implementation containing:
-  - `GoveeDataUpdateCoordinator`: Manages polling state from Govee API, inherits from HA's `DataUpdateCoordinator`
-  - `GoveeLightEntity`: Light entity implementation with support for on/off, brightness, RGB color, and color temperature
+### Clean Architecture
+- **Models**: Immutable frozen dataclasses, no I/O
+- **Protocols**: Abstract interfaces (Python Protocols)
+- **API Layer**: HTTP/MQTT clients, exception handling
+- **Coordinator**: State management, orchestration
+- **Entities**: Home Assistant platform integration
 
-- **`config_flow.py`**: UI-based configuration flow. Contains `GoveeFlowHandler` for initial setup (API key validation) and `GoveeOptionsFlowHandler` for runtime options (poll interval, state disable options).
+### Command Pattern
+Device control uses immutable command objects:
+```python
+PowerCommand(device_id="xxx", value=True)
+BrightnessCommand(device_id="xxx", value=128)
+ColorCommand(device_id="xxx", value=RGBColor(255, 0, 0))
+```
 
-- **`learning_storage.py`**: `GoveeLearningStorage` class that persists device-specific learned parameters to `config/govee_learning.yaml`. Different Govee devices have varying brightness ranges (0-100 or 0-254) which are auto-learned.
+### Observer Pattern
+Entities register as observers for state changes:
+```python
+coordinator.register_observer(device_id, entity)
+```
 
-- **`const.py`**: Domain constant (`govee`) and configuration keys
+## Key Components
 
-### API Client (`api/`)
+### GoveeDataUpdateCoordinator
+Central hub managing:
+- Device discovery and state polling
+- MQTT real-time updates
+- Scene caching
+- Optimistic state updates
+- Repairs integration
 
-- **`client.py`**: Async HTTP client for Govee Cloud API v2.0. Handles device listing, state queries, commands, and scene retrieval.
-- **`const.py`**: API endpoints, capability types, and instance constants.
+### GoveeApiClient
+REST client with:
+- aiohttp-retry for resilience
+- Rate limit tracking
+- Parallel state fetching
+- Command serialization
 
-### State Management
+### GoveeAwsIotClient
+MQTT client for real-time updates:
+- AWS IoT Core connection
+- Certificate-based auth
+- State push notifications
 
-The integration handles two state sources:
-- **API state**: Polled from Govee cloud API
-- **History state**: Assumed state after sending commands (before API confirmation)
+## Testing
 
-Configuration option `DISABLE_ATTRIBUTE_UPDATES` allows disabling specific attributes from specific sources (e.g., `API:power_state`) as a workaround for API issues.
+| File | Tests | Focus |
+|------|-------|-------|
+| test_models.py | 50 | RGBColor, Device, State, Commands |
+| test_config_flow.py | 41 | Config, options, reauth, reconfigure |
+| test_coordinator.py | 32 | Observer pattern, commands, state |
+| test_api_client.py | 28 | Exceptions, client, rate limits |
+| **Total** | **151** | |
 
-## Development Environment
+## Code Style
 
-A VS Code devcontainer is provided (`.devcontainer/`) that sets up a Home Assistant development instance accessible at `localhost:9123`.
+- **Formatting**: Black (line length 119)
+- **Linting**: Flake8
+- **Types**: mypy strict mode
+- **Docstrings**: Google style
+- **Coverage**: 95% minimum
 
-## CI Workflows
+## Common Tasks
 
-- `tox.yaml`: Runs tests on Python 3.12 and 3.13
-- `style.yml`: Runs black formatter check
-- `hacs-hass.yaml`: HACS validation and hassfest checks
+### Add a new platform
+1. Create `platform.py` with entity class
+2. Register in `__init__.py` PLATFORMS list
+3. Add to coordinator device processing
+4. Add tests
+
+### Add a new command
+1. Add command class to `models/commands.py`
+2. Implement in `api/client.py`
+3. Add coordinator method
+4. Add entity method
+5. Add tests
+
+### Handle a new error type
+1. Add exception to `api/exceptions.py`
+2. Handle in coordinator
+3. Consider repairs integration
+4. Add tests
+
+## Important Notes
+
+- All I/O must be async
+- Use `asyncio.gather()` for parallel operations
+- Entities inherit from `GoveeEntity` base class
+- Coordinator manages all state - entities are observers
+- MQTT is optional - polling is the fallback
+- Rate limits: 100/min, 10,000/day

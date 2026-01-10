@@ -1,623 +1,279 @@
-"""Shared test fixtures for Govee integration tests."""
+"""Test fixtures for Govee integration tests."""
+
 from __future__ import annotations
 
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from collections.abc import Generator
 
 import pytest
-from homeassistant.const import CONF_API_KEY
-from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.govee.const import (
-    DOMAIN,
-    CONF_POLL_INTERVAL,
-    CONF_USE_ASSUMED_STATE,
-    CONF_OFFLINE_IS_OFF,
-    CONF_ENABLE_GROUP_DEVICES,
+from custom_components.govee.api import (
+    GoveeApiClient,
+    GoveeIotCredentials,
 )
 from custom_components.govee.models import (
+    GoveeCapability,
     GoveeDevice,
     GoveeDeviceState,
-    DeviceCapability,
-    CapabilityParameter,
+    RGBColor,
 )
-from custom_components.govee.api.rate_limiter import RateLimitStatus
+from custom_components.govee.models.device import (
+    CAPABILITY_COLOR_SETTING,
+    CAPABILITY_DYNAMIC_SCENE,
+    CAPABILITY_ON_OFF,
+    CAPABILITY_RANGE,
+    CAPABILITY_SEGMENT_COLOR,
+    INSTANCE_BRIGHTNESS,
+    INSTANCE_COLOR_RGB,
+    INSTANCE_COLOR_TEMP,
+    INSTANCE_POWER,
+    INSTANCE_SCENE,
+)
 
-
-# ==============================================================================
-# Config Entry Fixtures
-# ==============================================================================
+# Capability constants for test devices
+DEVICE_TYPE_LIGHT = "devices.types.light"
+DEVICE_TYPE_PLUG = "devices.types.socket"
 
 
 @pytest.fixture
-def mock_config_entry() -> MockConfigEntry:
-    """Create a mock Govee config entry."""
-    return MockConfigEntry(
-        domain=DOMAIN,
-        title="Govee",
-        data={
-            CONF_API_KEY: "test_api_key_123456789",
-        },
-        options={
-            CONF_POLL_INTERVAL: 60,
-            CONF_USE_ASSUMED_STATE: False,
-            CONF_OFFLINE_IS_OFF: False,
-            CONF_ENABLE_GROUP_DEVICES: False,
-        },
-        entry_id="test_entry_id",
-        unique_id="govee_test",
+def mock_api_client() -> Generator[AsyncMock, None, None]:
+    """Create a mock API client."""
+    client = AsyncMock(spec=GoveeApiClient)
+    client.rate_limit_remaining = 100
+    client.rate_limit_total = 100
+    client.rate_limit_reset = 0
+    client.get_devices = AsyncMock(return_value=[])
+    client.get_device_state = AsyncMock()
+    client.control_device = AsyncMock(return_value=True)
+    client.get_dynamic_scenes = AsyncMock(return_value=[])
+    client.close = AsyncMock()
+    yield client
+
+
+@pytest.fixture
+def mock_iot_credentials() -> GoveeIotCredentials:
+    """Create mock IoT credentials."""
+    return GoveeIotCredentials(
+        token="test_token",
+        refresh_token="test_refresh",
+        account_topic="GA/test_account",
+        iot_cert="-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+        iot_key="-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+        iot_ca=None,
+        client_id="AP/12345/testclient",
+        endpoint="test.iot.amazonaws.com",
     )
 
 
 @pytest.fixture
-def mock_config_entry_with_options() -> MockConfigEntry:
-    """Create a mock Govee config entry with custom options."""
-    return MockConfigEntry(
-        domain=DOMAIN,
-        title="Govee",
-        data={
-            CONF_API_KEY: "test_api_key_123456789",
-        },
-        options={
-            CONF_POLL_INTERVAL: 30,
-            CONF_USE_ASSUMED_STATE: True,
-            CONF_OFFLINE_IS_OFF: True,
-            CONF_ENABLE_GROUP_DEVICES: True,
-        },
-        entry_id="test_entry_with_options",
-        unique_id="govee_test_options",
-    )
-
-
-# ==============================================================================
-# Device Model Fixtures (Factories for different device types)
-# ==============================================================================
-
-
-@pytest.fixture
-def device_capability_on_off() -> DeviceCapability:
-    """Create an on/off capability."""
-    return DeviceCapability(
-        type="devices.capabilities.on_off",
-        instance="powerSwitch",
-        parameters=None,
-    )
-
-
-@pytest.fixture
-def device_capability_brightness() -> DeviceCapability:
-    """Create a brightness capability."""
-    return DeviceCapability(
-        type="devices.capabilities.range",
-        instance="brightness",
-        parameters=CapabilityParameter(
-            data_type="INTEGER",
-            range={"min": 0, "max": 100, "precision": 1},
+def light_capabilities() -> tuple[GoveeCapability, ...]:
+    """Create capabilities for a typical light device."""
+    return (
+        GoveeCapability(
+            type=CAPABILITY_ON_OFF,
+            instance=INSTANCE_POWER,
+            parameters={},
         ),
-        min_value=0,
-        max_value=100,
-    )
-
-
-@pytest.fixture
-def device_capability_color_rgb() -> DeviceCapability:
-    """Create an RGB color capability."""
-    return DeviceCapability(
-        type="devices.capabilities.color_setting",
-        instance="colorRgb",
-        parameters=CapabilityParameter(
-            data_type="STRUCT",
-            fields=[
-                {"fieldName": "r", "type": "INTEGER", "range": {"min": 0, "max": 255}},
-                {"fieldName": "g", "type": "INTEGER", "range": {"min": 0, "max": 255}},
-                {"fieldName": "b", "type": "INTEGER", "range": {"min": 0, "max": 255}},
-            ],
+        GoveeCapability(
+            type=CAPABILITY_RANGE,
+            instance=INSTANCE_BRIGHTNESS,
+            parameters={"range": {"min": 0, "max": 100}},
+        ),
+        GoveeCapability(
+            type=CAPABILITY_COLOR_SETTING,
+            instance=INSTANCE_COLOR_RGB,
+            parameters={},
+        ),
+        GoveeCapability(
+            type=CAPABILITY_COLOR_SETTING,
+            instance=INSTANCE_COLOR_TEMP,
+            parameters={"range": {"min": 2000, "max": 9000}},
+        ),
+        GoveeCapability(
+            type=CAPABILITY_DYNAMIC_SCENE,
+            instance=INSTANCE_SCENE,
+            parameters={},
         ),
     )
 
 
 @pytest.fixture
-def device_capability_color_temp() -> DeviceCapability:
-    """Create a color temperature capability."""
-    return DeviceCapability(
-        type="devices.capabilities.color_setting",
-        instance="colorTemperatureK",
-        parameters=CapabilityParameter(
-            data_type="INTEGER",
-            range={"min": 2000, "max": 9000, "precision": 1},
-        ),
-        min_value=2000,
-        max_value=9000,
-    )
-
-
-@pytest.fixture
-def device_capability_scene() -> DeviceCapability:
-    """Create a dynamic scene capability."""
-    return DeviceCapability(
-        type="devices.capabilities.dynamic_scene",
-        instance="lightScene",
-        parameters=CapabilityParameter(
-            data_type="ENUM",
-            options=[
-                {"name": "Sunrise", "value": 1},
-                {"name": "Sunset", "value": 2},
-                {"name": "Movie", "value": 3},
-                {"name": "Romantic", "value": 4},
-            ],
+def rgbic_capabilities(light_capabilities) -> tuple[GoveeCapability, ...]:
+    """Create capabilities for an RGBIC device."""
+    return light_capabilities + (
+        GoveeCapability(
+            type=CAPABILITY_SEGMENT_COLOR,
+            instance="segmentedColorRgb",
+            parameters={"segmentCount": 15},
         ),
     )
 
 
 @pytest.fixture
-def mock_device_light(
-    device_capability_on_off: DeviceCapability,
-    device_capability_brightness: DeviceCapability,
-    device_capability_color_rgb: DeviceCapability,
-    device_capability_color_temp: DeviceCapability,
-) -> GoveeDevice:
-    """Create a mock RGB+CCT light device."""
+def plug_capabilities() -> tuple[GoveeCapability, ...]:
+    """Create capabilities for a smart plug."""
+    return (
+        GoveeCapability(
+            type=CAPABILITY_ON_OFF,
+            instance=INSTANCE_POWER,
+            parameters={},
+        ),
+    )
+
+
+@pytest.fixture
+def mock_light_device(light_capabilities) -> GoveeDevice:
+    """Create a mock light device."""
     return GoveeDevice(
-        device_id="AA:BB:CC:DD:EE:FF:11:22",
-        sku="H6160",
-        device_name="Bedroom Strip",
-        device_type="devices.types.light",
-        capabilities=[
-            device_capability_on_off,
-            device_capability_brightness,
-            device_capability_color_rgb,
-            device_capability_color_temp,
-        ],
-        firmware_version="1.02.03",
+        device_id="AA:BB:CC:DD:EE:FF:00:11",
+        sku="H6072",
+        name="Living Room Light",
+        device_type=DEVICE_TYPE_LIGHT,
+        capabilities=light_capabilities,
+        is_group=False,
     )
 
 
 @pytest.fixture
-def mock_device_light_with_scenes(
-    mock_device_light: GoveeDevice,
-    device_capability_scene: DeviceCapability,
-) -> GoveeDevice:
-    """Create a mock light device with scene support."""
+def mock_rgbic_device(rgbic_capabilities) -> GoveeDevice:
+    """Create a mock RGBIC LED strip device."""
     return GoveeDevice(
-        device_id=mock_device_light.device_id,
-        sku=mock_device_light.sku,
-        device_name=mock_device_light.device_name,
-        device_type=mock_device_light.device_type,
-        capabilities=mock_device_light.capabilities + [device_capability_scene],
-        firmware_version=mock_device_light.firmware_version,
+        device_id="AA:BB:CC:DD:EE:FF:00:22",
+        sku="H6167",
+        name="Bedroom LED Strip",
+        device_type=DEVICE_TYPE_LIGHT,
+        capabilities=rgbic_capabilities,
+        is_group=False,
     )
 
 
 @pytest.fixture
-def mock_device_switch(
-    device_capability_on_off: DeviceCapability,
-) -> GoveeDevice:
-    """Create a mock switch/socket device."""
+def mock_plug_device(plug_capabilities) -> GoveeDevice:
+    """Create a mock smart plug device."""
     return GoveeDevice(
-        device_id="AA:BB:CC:DD:EE:FF:33:44",
+        device_id="AA:BB:CC:DD:EE:FF:00:33",
         sku="H5080",
-        device_name="Living Room Outlet",
-        device_type="devices.types.socket",
-        capabilities=[device_capability_on_off],
-        firmware_version="1.01.02",
+        name="Office Plug",
+        device_type=DEVICE_TYPE_PLUG,
+        capabilities=plug_capabilities,
+        is_group=False,
     )
 
 
 @pytest.fixture
-def mock_device_brightness_only(
-    device_capability_on_off: DeviceCapability,
-    device_capability_brightness: DeviceCapability,
-) -> GoveeDevice:
-    """Create a mock light device with only on/off and brightness."""
+def mock_group_device(light_capabilities) -> GoveeDevice:
+    """Create a mock group device."""
     return GoveeDevice(
-        device_id="AA:BB:CC:DD:EE:FF:55:66",
-        sku="H6001",
-        device_name="Desk Lamp",
-        device_type="devices.types.light",
-        capabilities=[device_capability_on_off, device_capability_brightness],
-        firmware_version="1.00.05",
+        device_id="GROUP:AA:BB:CC:DD:EE:FF",
+        sku="GROUP",
+        name="All Lights",
+        device_type="devices.types.group",
+        capabilities=light_capabilities,
+        is_group=True,
     )
 
 
 @pytest.fixture
-def mock_device_group() -> GoveeDevice:
-    """Create a mock group device (unsupported for state queries).
-
-    Uses actual group SKU from UNSUPPORTED_DEVICE_SKUS:
-    - SameModeGroup: Same Model device group
-    - BaseGroup: Base device group
-    - DreamViewScenic: DreamView scene shortcut
-    """
-    return GoveeDevice(
-        device_id="GROUP_123456789",
-        sku="SameModeGroup",  # Actual group SKU from UNSUPPORTED_DEVICE_SKUS
-        device_name="Living Room Group",
-        device_type="devices.types.light",
-        capabilities=[
-            DeviceCapability(
-                type="devices.capabilities.on_off",
-                instance="powerSwitch",
-            ),
-            DeviceCapability(
-                type="devices.capabilities.range",
-                instance="brightness",
-                parameters=CapabilityParameter(
-                    data_type="INTEGER",
-                    range={"min": 0, "max": 100},
-                ),
-                min_value=0,
-                max_value=100,
-            ),
-        ],
-        firmware_version=None,
-    )
-
-
-# ==============================================================================
-# Device State Fixtures
-# ==============================================================================
-
-
-@pytest.fixture
-def mock_state_light_on() -> GoveeDeviceState:
-    """Create a mock light state (on, RGB, full brightness)."""
+def mock_device_state() -> GoveeDeviceState:
+    """Create a mock device state."""
     return GoveeDeviceState(
-        device_id="AA:BB:CC:DD:EE:FF:11:22",
-        online=True,
-        power_state=True,
-        brightness=100,
-        color_rgb=(255, 128, 64),
-        color_temp_kelvin=None,
-        current_scene=None,
-    )
-
-
-@pytest.fixture
-def mock_state_light_off() -> GoveeDeviceState:
-    """Create a mock light state (off)."""
-    return GoveeDeviceState(
-        device_id="AA:BB:CC:DD:EE:FF:11:22",
-        online=True,
-        power_state=False,
-        brightness=0,
-        color_rgb=None,
-        color_temp_kelvin=None,
-        current_scene=None,
-    )
-
-
-@pytest.fixture
-def mock_state_light_color_temp() -> GoveeDeviceState:
-    """Create a mock light state with color temperature."""
-    return GoveeDeviceState(
-        device_id="AA:BB:CC:DD:EE:FF:11:22",
+        device_id="AA:BB:CC:DD:EE:FF:00:11",
         online=True,
         power_state=True,
         brightness=75,
-        color_rgb=None,
-        color_temp_kelvin=4000,
-        current_scene=None,
+        color=RGBColor(r=255, g=128, b=64),
+        color_temp_kelvin=None,
+        active_scene=None,
+        source="api",
     )
 
 
 @pytest.fixture
-def mock_state_offline() -> GoveeDeviceState:
-    """Create a mock offline device state."""
+def mock_device_state_off() -> GoveeDeviceState:
+    """Create a mock device state (off)."""
     return GoveeDeviceState(
-        device_id="AA:BB:CC:DD:EE:FF:11:22",
-        online=False,
+        device_id="AA:BB:CC:DD:EE:FF:00:11",
+        online=True,
         power_state=False,
         brightness=0,
-        color_rgb=None,
+        color=None,
         color_temp_kelvin=None,
-        current_scene=None,
-    )
-
-
-# ==============================================================================
-# API Client Fixtures
-# ==============================================================================
-
-
-@pytest.fixture
-def mock_api_client() -> MagicMock:
-    """Create a mocked Govee API client."""
-    client = MagicMock()
-
-    # Mock async methods
-    client.get_devices = AsyncMock(return_value=[])
-    client.get_device_state = AsyncMock(return_value=None)
-    client.control_device = AsyncMock(return_value=None)
-    client.turn_on = AsyncMock(return_value=None)
-    client.turn_off = AsyncMock(return_value=None)
-    client.set_brightness = AsyncMock(return_value=None)
-    client.set_color_rgb = AsyncMock(return_value=None)
-    client.set_color_temp = AsyncMock(return_value=None)
-    client.set_scene = AsyncMock(return_value=None)
-    client.get_dynamic_scenes = AsyncMock(return_value=[])
-    client.get_diy_scenes = AsyncMock(return_value=[])
-    client.close = AsyncMock(return_value=None)  # Async close method
-
-    # Mock rate limiter properties
-    client.rate_limiter = MagicMock()
-    client.rate_limiter.remaining_minute = 100
-    client.rate_limiter.remaining_day = 10000
-    client.rate_limiter.reset_minute = 60
-    client.rate_limiter.reset_day = 86400
-    # Mock status property for adaptive polling
-    client.rate_limiter.status = RateLimitStatus(
-        remaining_minute=100,
-        remaining_day=10000,
-        reset_minute=None,
-        reset_day=None,
-        is_limited=False,
-        wait_time=None,
-        consecutive_failures=0,
-    )
-
-    return client
-
-
-@pytest.fixture
-def mock_api_client_with_devices(
-    mock_api_client: MagicMock,
-    mock_device_light: GoveeDevice,
-    mock_device_switch: GoveeDevice,
-) -> MagicMock:
-    """Create a mocked API client that returns test devices."""
-    mock_api_client.get_devices = AsyncMock(
-        return_value=[mock_device_light, mock_device_switch]
-    )
-    return mock_api_client
-
-
-@pytest.fixture
-def mock_api_client_with_state(
-    mock_api_client: MagicMock,
-    mock_state_light_on: GoveeDeviceState,
-) -> MagicMock:
-    """Create a mocked API client that returns device state."""
-    mock_api_client.get_device_state = AsyncMock(return_value=mock_state_light_on)
-    return mock_api_client
-
-
-# ==============================================================================
-# Coordinator Fixtures
-# ==============================================================================
-
-
-@pytest.fixture
-def mock_coordinator(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    mock_api_client: MagicMock,
-) -> MagicMock:
-    """Create a mocked data update coordinator."""
-    from custom_components.govee.coordinator import GoveeDataUpdateCoordinator
-
-    coordinator = MagicMock(spec=GoveeDataUpdateCoordinator)
-    coordinator.hass = hass
-    coordinator.config_entry = mock_config_entry
-    coordinator.client = mock_api_client
-    coordinator.data = {}
-    coordinator.last_update_success = True
-    coordinator.rate_limit_remaining = 9999
-    coordinator.rate_limit_remaining_minute = 99
-    coordinator.async_add_listener = MagicMock()
-    coordinator.async_remove_listener = MagicMock()
-    coordinator.async_request_refresh = AsyncMock()
-    coordinator.get_state = MagicMock(return_value=None)
-    coordinator.set_optimistic_state = MagicMock()
-    # MQTT-related mocks
-    coordinator.async_setup_mqtt = AsyncMock()
-    coordinator.async_stop_mqtt = AsyncMock()
-    coordinator.mqtt_connected = False
-
-    return coordinator
-
-
-# ==============================================================================
-# Home Assistant Fixtures
-# ==============================================================================
-
-
-@pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(
-    enable_custom_integrations: Generator[None, None, None],
-) -> Generator[None, None, None]:
-    """Enable custom integrations for all tests."""
-    yield
-
-
-@pytest.fixture
-def mock_setup_integration() -> Generator[None, None, None]:
-    """Mock integration setup."""
-    with patch(
-        "custom_components.govee.async_setup",
-        return_value=True,
-    ), patch(
-        "custom_components.govee.async_setup_entry",
-        return_value=True,
-    ):
-        yield
-
-
-# ==============================================================================
-# Additional Device Fixtures for Light Tests
-# ==============================================================================
-
-
-@pytest.fixture
-def device_capability_segment_color() -> DeviceCapability:
-    """Create a segment color capability."""
-    return DeviceCapability(
-        type="devices.capabilities.segment_color_setting",
-        instance="segmentedColorRgb",
-        parameters=CapabilityParameter(
-            data_type="STRUCT",
-            fields=[
-                {"fieldName": "segment", "type": "ARRAY"},
-                {"fieldName": "rgb", "type": "INTEGER"},
-            ],
-        ),
+        active_scene=None,
+        source="api",
     )
 
 
 @pytest.fixture
-def device_capability_music_mode() -> DeviceCapability:
-    """Create a music mode capability."""
-    return DeviceCapability(
-        type="devices.capabilities.music_setting",
-        instance="musicMode",
-        parameters=CapabilityParameter(
-            data_type="STRUCT",
-            fields=[
-                {"fieldName": "musicMode", "type": "STRING"},
-                {"fieldName": "sensitivity", "type": "INTEGER"},
-                {"fieldName": "autoColor", "type": "INTEGER"},
-            ],
-        ),
-    )
-
-
-@pytest.fixture
-def mock_device_light_with_segments(
-    mock_device_light: GoveeDevice,
-    device_capability_segment_color: DeviceCapability,
-) -> GoveeDevice:
-    """Create a mock light device with segment control support (RGBIC)."""
-    return GoveeDevice(
-        device_id=mock_device_light.device_id,
-        sku="H6199",  # RGBIC strip
-        device_name=mock_device_light.device_name,
-        device_type=mock_device_light.device_type,
-        capabilities=mock_device_light.capabilities + [device_capability_segment_color],
-        firmware_version=mock_device_light.firmware_version,
-    )
-
-
-@pytest.fixture
-def mock_device_light_with_music_mode(
-    mock_device_light: GoveeDevice,
-    device_capability_music_mode: DeviceCapability,
-) -> GoveeDevice:
-    """Create a mock light device with music mode support."""
-    return GoveeDevice(
-        device_id=mock_device_light.device_id,
-        sku=mock_device_light.sku,
-        device_name=mock_device_light.device_name,
-        device_type=mock_device_light.device_type,
-        capabilities=mock_device_light.capabilities + [device_capability_music_mode],
-        firmware_version=mock_device_light.firmware_version,
-    )
-
-
-# ==============================================================================
-# Scene Fixtures
-# ==============================================================================
-
-
-@pytest.fixture
-def mock_dynamic_scenes() -> list[dict[str, Any]]:
-    """Create mock dynamic scenes from API."""
+def mock_scenes() -> list[dict[str, Any]]:
+    """Create mock scene data."""
     return [
-        {"sceneCode": 1, "sceneName": "Sunrise"},
-        {"sceneCode": 2, "sceneName": "Sunset"},
-        {"sceneCode": 3, "sceneName": "Movie"},
-        {"sceneCode": 4, "sceneName": "Romantic"},
-        {"sceneCode": 5, "sceneName": "Party"},
+        {"name": "Sunrise", "value": {"id": 1}},
+        {"name": "Sunset", "value": {"id": 2}},
+        {"name": "Party", "value": {"id": 3}},
+        {"name": "Movie", "value": {"id": 4}},
     ]
 
 
 @pytest.fixture
-def mock_diy_scenes() -> list[dict[str, Any]]:
-    """Create mock DIY scenes from API."""
-    return [
-        {"sceneCode": 101, "sceneName": "My Custom Scene 1"},
-        {"sceneCode": 102, "sceneName": "My Custom Scene 2"},
-    ]
-
-
-# ==============================================================================
-# API Response Fixtures
-# ==============================================================================
-
-
-@pytest.fixture
-def mock_api_device_response() -> dict[str, Any]:
-    """Create a mock API device discovery response."""
+def api_device_response() -> dict[str, Any]:
+    """Create a mock API device response."""
     return {
-        "device": "AA:BB:CC:DD:EE:FF:11:22",
-        "sku": "H6160",
-        "deviceName": "Bedroom Strip",
+        "device": "AA:BB:CC:DD:EE:FF:00:11",
+        "sku": "H6072",
+        "deviceName": "Living Room Light",
         "type": "devices.types.light",
         "capabilities": [
+            {"type": CAPABILITY_ON_OFF, "instance": INSTANCE_POWER, "parameters": {}},
             {
-                "type": "devices.capabilities.on_off",
-                "instance": "powerSwitch",
+                "type": CAPABILITY_RANGE,
+                "instance": INSTANCE_BRIGHTNESS,
+                "parameters": {"range": {"min": 0, "max": 100}},
+            },
+            {"type": CAPABILITY_COLOR_SETTING, "instance": INSTANCE_COLOR_RGB, "parameters": {}},
+        ],
+    }
+
+
+@pytest.fixture
+def api_state_response() -> dict[str, Any]:
+    """Create a mock API state response."""
+    return {
+        "capabilities": [
+            {
+                "type": "devices.capabilities.online",
+                "instance": "online",
+                "state": {"value": True},
             },
             {
-                "type": "devices.capabilities.range",
-                "instance": "brightness",
-                "parameters": {
-                    "dataType": "INTEGER",
-                    "range": {"min": 0, "max": 100, "precision": 1},
-                },
+                "type": CAPABILITY_ON_OFF,
+                "instance": INSTANCE_POWER,
+                "state": {"value": 1},
             },
             {
-                "type": "devices.capabilities.color_setting",
-                "instance": "colorRgb",
-                "parameters": {
-                    "dataType": "STRUCT",
-                    "fields": [
-                        {"fieldName": "r", "type": "INTEGER", "range": {"min": 0, "max": 255}},
-                        {"fieldName": "g", "type": "INTEGER", "range": {"min": 0, "max": 255}},
-                        {"fieldName": "b", "type": "INTEGER", "range": {"min": 0, "max": 255}},
-                    ],
-                },
+                "type": CAPABILITY_RANGE,
+                "instance": INSTANCE_BRIGHTNESS,
+                "state": {"value": 75},
+            },
+            {
+                "type": CAPABILITY_COLOR_SETTING,
+                "instance": INSTANCE_COLOR_RGB,
+                "state": {"value": 16744512},  # RGB(255, 128, 64)
             },
         ],
-        "version": "1.02.03",
     }
 
 
 @pytest.fixture
-def mock_api_state_response() -> dict[str, Any]:
-    """Create a mock API device state response."""
+def mqtt_state_message() -> dict[str, Any]:
+    """Create a mock MQTT state message."""
     return {
-        "online": True,
-        "powerState": "on",
-        "brightness": 100,
-        "color": {"r": 255, "g": 128, "b": 64},
+        "device": "AA:BB:CC:DD:EE:FF:00:11",
+        "sku": "H6072",
+        "state": {
+            "onOff": 1,
+            "brightness": 75,
+            "color": {"r": 255, "g": 128, "b": 64},
+            "colorTemInKelvin": 0,
+        },
     }
-
-
-# ==============================================================================
-# Error Fixtures
-# ==============================================================================
-
-
-@pytest.fixture
-def mock_auth_error() -> Exception:
-    """Create a mock authentication error."""
-    from custom_components.govee.api.exceptions import GoveeAuthError
-
-    return GoveeAuthError("Invalid API key")
-
-
-@pytest.fixture
-def mock_rate_limit_error() -> Exception:
-    """Create a mock rate limit error."""
-    from custom_components.govee.api.exceptions import GoveeRateLimitError
-
-    return GoveeRateLimitError("Rate limit exceeded")
-
-
-@pytest.fixture
-def mock_connection_error() -> Exception:
-    """Create a mock connection error."""
-    from custom_components.govee.api.exceptions import GoveeConnectionError
-
-    return GoveeConnectionError("Failed to connect to Govee API")

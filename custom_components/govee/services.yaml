@@ -1,96 +1,37 @@
+refresh_scenes:
+  name: Refresh Scenes
+  description: Refresh available scenes from Govee API
+  fields:
+    device_id:
+      name: Device ID
+      description: Specific device to refresh (optional, refreshes all if omitted)
+      required: false
+      example: "AA:BB:CC:DD:EE:FF:00:11"
+      selector:
+        text:
+
 set_segment_color:
   name: Set Segment Color
-  description: Set color for specific segments of a Govee RGBIC light strip
-  target:
-    entity:
-      domain: light
-      integration: govee
+  description: Set color for specific segments on RGBIC devices
   fields:
+    device_id:
+      name: Device ID
+      description: Device ID of the RGBIC light
+      required: true
+      example: "AA:BB:CC:DD:EE:FF:00:11"
+      selector:
+        text:
     segments:
       name: Segments
       description: List of segment indices (0-based)
       required: true
-      example: "[0, 1, 2, 3]"
+      example: "[0, 1, 2]"
       selector:
         object:
     rgb_color:
       name: RGB Color
-      description: RGB color as [r, g, b] with values 0-255
+      description: Color as [R, G, B] values (0-255)
       required: true
       example: "[255, 0, 0]"
       selector:
         color_rgb:
-
-set_segment_brightness:
-  name: Set Segment Brightness
-  description: Set brightness for specific segments of a Govee RGBIC light strip
-  target:
-    entity:
-      domain: light
-      integration: govee
-  fields:
-    segments:
-      name: Segments
-      description: List of segment indices (0-based)
-      required: true
-      example: "[0, 1, 2, 3]"
-      selector:
-        object:
-    brightness:
-      name: Brightness
-      description: Brightness percentage (0-100)
-      required: true
-      selector:
-        number:
-          min: 0
-          max: 100
-          step: 1
-          unit_of_measurement: "%"
-
-set_music_mode:
-  name: Set Music Mode
-  description: Activate music reactive mode on a Govee light
-  target:
-    entity:
-      domain: light
-      integration: govee
-  fields:
-    mode:
-      name: Mode
-      description: Music mode name
-      required: true
-      example: "Energic"
-      selector:
-        text:
-    sensitivity:
-      name: Sensitivity
-      description: Microphone sensitivity (0-100)
-      required: false
-      default: 50
-      selector:
-        number:
-          min: 0
-          max: 100
-          step: 1
-          unit_of_measurement: "%"
-    auto_color:
-      name: Auto Color
-      description: Enable automatic color changes
-      required: false
-      default: true
-      selector:
-        boolean:
-    rgb_color:
-      name: Fixed Color
-      description: Fixed color when auto_color is disabled
-      required: false
-      selector:
-        color_rgb:
-
-refresh_scenes:
-  name: Refresh Scenes
-  description: Refresh the scene list from Govee cloud
-  target:
-    entity:
-      domain: select
-      integration: govee

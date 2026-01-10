@@ -1,599 +1,253 @@
 # Govee Integration Architecture
 
-This document provides a comprehensive overview of the Govee Home Assistant integration architecture, data flow, and implementation details.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Component Architecture](#component-architecture)
-- [Data Flow](#data-flow)
-- [State Management](#state-management)
-- [Rate Limiting](#rate-limiting)
-- [Device Capability Detection](#device-capability-detection)
-- [Error Handling Strategy](#error-handling-strategy)
-- [Group Device Support](#group-device-support)
-- [Performance Optimizations](#performance-optimizations)
+This document provides a comprehensive overview of the Govee Home Assistant integration architecture.
 
 ---
 
 ## Overview
 
-The Govee integration is a **hub-type** Home Assistant integration that connects to the Govee cloud API v2.0 to control lights, LED strips, and smart plugs. It follows the modern Home Assistant architecture patterns with:
+The Govee integration is a **hub-type** Home Assistant integration that connects to the Govee Cloud API v2.0 to control lights, LED strips, and smart plugs. It follows Clean Architecture principles with:
 
-- **Config Flow**: UI-based configuration with re-authentication support
+- **Config Flow**: UI-based configuration with reauth and reconfigure support
 - **DataUpdateCoordinator**: Centralized state management and polling
-- **Platform Entities**: Light, Switch, and Select platforms
-- **Type Safety**: 100% type annotations (mypy strict compliant)
-- **Async Architecture**: Fully asynchronous using asyncio
+- **Platform Entities**: Light, Scene, Switch, Sensor, Button platforms
+- **Command Pattern**: Immutable command objects for device control
+- **Protocol Interfaces**: Clean separation between layers
+- **Repairs Framework**: Actionable notifications for common issues
 
 **Integration Type**: `hub` (cloud service managing multiple devices)
-**IoT Class**: `cloud_polling`
+**IoT Class**: `cloud_push` (MQTT real-time updates with polling fallback)
 **API Version**: Govee API v2.0
 
 ---
 
-## Component Architecture
-
-### Directory Structure
+## Directory Structure
 
 ```
 custom_components/govee/
 ├── __init__.py              # Integration entry point
-├── config_flow.py           # UI configuration flow
-├── coordinator.py           # DataUpdateCoordinator
-├── entity.py                # Base entity class
+├── config_flow.py           # Config flow (user, account, reauth, reconfigure)
+├── coordinator.py           # DataUpdateCoordinator with MQTT integration
+├── entity.py                # Base entity class (GoveeEntity)
 ├── light.py                 # Light platform
-├── switch.py                # Switch platform
-├── select.py                # Select platform (scenes)
+├── scene.py                 # Scene platform
+├── switch.py                # Switch platform (plugs, night light)
+├── sensor.py                # Sensor platform (rate limit, MQTT status)
+├── button.py                # Button platform (refresh scenes)
 ├── services.py              # Custom services
-├── models.py                # Data models
+├── repairs.py               # Repairs framework integration
+├── diagnostics.py           # Diagnostics for troubleshooting
 ├── const.py                 # Constants
 ├── manifest.json            # Integration metadata
-├── strings.json             # UI strings (base)
-├── translations/            # Localized strings
-│   ├── en.json
-│   ├── de.json
-│   ├── fr.json
-│   └── pt-BR.json
-└── api/
-    ├── client.py            # API client
-    ├── const.py             # API constants
-    └── exceptions.py        # API exceptions
+├── strings.json             # UI strings
+├── services.yaml            # Service definitions
+├── quality_scale.yaml       # Quality scale tracking
+├── translations/
+│   └── en.json              # English translations
+├── models/                  # Domain models (frozen dataclasses)
+│   ├── __init__.py
+│   ├── device.py            # GoveeDevice, GoveeCapability
+│   ├── state.py             # GoveeDeviceState, RGBColor
+│   └── commands.py          # Command pattern implementations
+├── platforms/
+│   ├── __init__.py
+│   └── segment.py           # Segment light entities (RGBIC)
+├── protocols/               # Protocol interfaces
+│   ├── __init__.py
+│   ├── api.py               # IApiClient, IAuthProvider
+│   └── state.py             # IStateProvider, IStateObserver
+└── api/                     # API layer
+    ├── __init__.py
+    ├── client.py            # GoveeApiClient (REST)
+    ├── auth.py              # GoveeAuthClient (account login)
+    ├── mqtt.py              # GoveeAwsIotClient (real-time MQTT)
+    └── exceptions.py        # Exception hierarchy
 ```
 
-### Component Responsibilities
+---
 
-#### `__init__.py` - Integration Setup
-**Purpose**: Entry point for Home Assistant integration loading
+## Component Responsibilities
 
-**Key Functions**:
-- `async_setup_entry()`: Initialize integration on HA startup
-- `async_unload_entry()`: Clean up on integration removal
-- `async_reload_entry()`: Handle configuration changes
+### Entry Point (`__init__.py`)
 
-**Responsibilities**:
-- Create API client with user's API key
-- Initialize DataUpdateCoordinator
-- Set up platforms (light, switch, select)
-- Store runtime data in `entry.runtime_data`
+- `async_setup_entry()`: Initialize integration
+- `async_unload_entry()`: Clean up on removal
+- Creates API client and coordinator
+- Forwards platform setup
+- Registers update listener for options changes
 
-**Flow**:
-```
-HA Startup → async_setup_entry() → Create API Client → Create Coordinator
-          → coordinator._async_setup() → Platform Setup → Entities Created
-```
+### Coordinator (`coordinator.py`)
 
-#### `coordinator.py` - State Management
-**Purpose**: Central hub for device state polling and caching
+Central hub for device state management:
 
-**Class**: `GoveeDataUpdateCoordinator(DataUpdateCoordinator)`
+- **Device Discovery**: Fetches devices from API on setup
+- **Parallel State Fetching**: Queries all device states concurrently
+- **MQTT Integration**: Real-time state updates via AWS IoT
+- **Scene Caching**: Caches scenes to minimize API calls
+- **Optimistic Updates**: Immediate UI feedback after commands
+- **Observer Pattern**: Notifies entities of state changes
+- **Repairs Integration**: Creates repair issues for errors
 
-**Key Methods**:
-- `_async_setup()`: Discover devices on first load
-- `_async_update_data()`: Poll device states (parallel fetching)
-- `async_control_device()`: Send control commands with optimistic updates
-- `async_get_dynamic_scenes()`: Fetch and cache scenes
-- `async_get_diy_scenes()`: Fetch and cache DIY scenes
+### Config Flow (`config_flow.py`)
 
-**Features**:
-- Parallel state fetching (10x faster for multiple devices)
-- Scene caching (minimize API calls)
-- Optimistic state updates
-- Group device special handling
-- Rate limit tracking
+UI-based configuration:
 
-#### `config_flow.py` - Configuration
-**Purpose**: UI-based configuration and re-authentication
+1. **User Step**: Enter API key
+2. **Account Step**: Optional email/password for MQTT
+3. **Reauth Step**: Re-authenticate on 401 errors
+4. **Reconfigure Step**: Update credentials without removing integration
+5. **Options Flow**: Poll interval, enable groups/scenes/segments
 
-**Classes**:
-- `GoveeFlowHandler`: Initial setup flow
-- `GoveeOptionsFlowHandler`: Runtime options configuration
+### Models (`models/`)
 
-**Flows**:
-1. **Initial Setup** (`async_step_user`):
-   - Validate API key
-   - Set poll interval
-   - Create config entry
+Frozen dataclasses for immutability:
 
-2. **Options** (`async_step_user`):
-   - Update API key
-   - Modify poll interval
-   - Toggle assumed state
-   - Enable/disable group devices
-   - Configure attribute update filters
+- **GoveeDevice**: Device metadata and capabilities
+- **GoveeDeviceState**: Current device state (mutable for updates)
+- **RGBColor**: Immutable RGB color value
+- **Commands**: PowerCommand, BrightnessCommand, ColorCommand, etc.
 
-3. **Re-authentication** (`async_step_reauth`):
-   - Triggered on 401 errors
-   - Validate new API key
-   - Update config entry
-   - Reload integration
+### Protocols (`protocols/`)
 
-#### `light.py` - Light Platform
-**Purpose**: Light entities with full color control
+Clean Architecture interfaces:
 
-**Class**: `GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity)`
+- **IApiClient**: Contract for API operations
+- **IAuthProvider**: Contract for authentication
+- **IStateProvider**: Contract for state access
+- **IStateObserver**: Contract for state change notifications
 
-**Features**:
-- Auto-detected color modes (RGB, color temp, brightness, on/off)
-- Brightness conversion (HA 0-255 ↔ Device ranges)
-- Scene support via effect list
-- Segment control (RGBIC strips)
-- Music mode activation
-- State restoration for group devices
+### API Layer (`api/`)
 
-**Color Mode Detection**:
-```python
-if device.supports_rgb and device.supports_color_temp:
-    color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP}
-elif device.supports_rgb:
-    color_modes = {ColorMode.RGB}
-elif device.supports_brightness:
-    color_modes = {ColorMode.BRIGHTNESS}
-else:
-    color_modes = {ColorMode.ON_OFF}
-```
-
-#### `switch.py` - Switch Platform
-**Purpose**: Switch entities for plugs and night lights
-
-**Entity Types**:
-1. **Smart Plug Switches**: On/off control for outlets
-2. **Night Light Switches**: Warm backlight mode toggle
-
-**Class**: `GoveeSwitchEntity(GoveeEntity, SwitchEntity)`
-
-#### `select.py` - Select Platform
-**Purpose**: Scene selection dropdowns
-
-**Entity Types**:
-1. **Dynamic Scenes**: Cloud-provided scenes
-2. **DIY Scenes**: User-created scenes (disabled by default)
-
-**Class**: `GoveeSelectEntity(GoveeEntity, SelectEntity)`
-
-**Features**:
-- Lazy loading (scenes fetched on first access)
-- Caching (minimize API calls)
-- Refresh service support
-
-#### `api/client.py` - API Client
-**Purpose**: Govee API v2.0 communication
-
-**Classes**:
-1. **`RateLimiter`**: Dual-limit rate limiting (100/min, 10,000/day)
-2. **`GoveeApiClient`**: HTTP client for Govee API
-
-**Key Methods**:
-- `get_devices()`: Fetch all devices
-- `get_device_state()`: Query device state
-- `control_device()`: Send control commands
-- `get_dynamic_scenes()`: Fetch scenes
-- `get_diy_scenes()`: Fetch DIY scenes
-
-**Rate Limiting**:
-- Tracks requests in sliding windows
-- Automatically waits when limits approached
-- Updates from API response headers
+- **GoveeApiClient**: REST API with aiohttp-retry for resilience
+- **GoveeAuthClient**: Account login and IoT credential retrieval
+- **GoveeAwsIotClient**: AWS IoT MQTT for real-time updates
+- **Exceptions**: Hierarchical exception classes with translation support
 
 ---
 
 ## Data Flow
 
-### Device Discovery Flow
+### State Update Flow
 
 ```
-User Configures Integration
-        ↓
-GoveeFlowHandler.async_step_user()
-        ↓
-validate_api_key() → Test connection
-        ↓
-async_setup_entry() → Create coordinator
-        ↓
-coordinator._async_setup() → Fetch devices
-        ↓
-Filter group devices (unless enabled)
-        ↓
-Store in coordinator.devices
-        ↓
-Platform setup (light, switch, select)
-        ↓
-Entities created for each device
-```
-
-### State Update Flow (Polling)
-
-```
-Update Interval Timer
+Poll Interval Timer
         ↓
 coordinator._async_update_data()
         ↓
-┌─────────────────────────────────┐
-│ Parallel State Fetching:        │
-│  - Create tasks for all devices │
-│  - asyncio.gather(*tasks)       │
-│  - 30s timeout protection       │
-└─────────────────────────────────┘
+Parallel: fetch state for all devices
         ↓
 Process results:
   - Success → Update state
-  - Auth Error → Trigger reauth
-  - Rate Limit → Keep previous state
-  - Other Error → Log, keep previous
-        ↓
-coordinator.data = states
+  - Auth Error → Create repair issue, trigger reauth
+  - Rate Limit → Create repair issue, keep previous state
         ↓
 coordinator.async_set_updated_data()
         ↓
-Entities notified of state change
+Entities receive state update
+```
+
+### MQTT Real-time Flow
+
+```
+MQTT Message Received
         ↓
-UI updated
+_on_mqtt_state_update()
+        ↓
+Update state from MQTT data
+        ↓
+coordinator.async_set_updated_data()
+        ↓
+Notify observers
+        ↓
+UI updated immediately
 ```
 
 ### Control Command Flow
 
 ```
-User Action (turn on/off, set color, etc.)
+User Action (turn on, set color, etc.)
         ↓
-Entity method (async_turn_on, async_turn_off, etc.)
+Entity method (async_turn_on, etc.)
         ↓
 coordinator.async_control_device()
         ↓
-RateLimiter.acquire() → Wait if needed
+Create Command object (immutable)
         ↓
-client.control_device() → Send to API
+API client sends command
         ↓
 Apply optimistic state update
         ↓
-coordinator.async_set_updated_data()
-        ↓
-UI updated immediately (don't wait for polling)
-        ↓
-Next poll cycle confirms actual state
+UI updated immediately
 ```
 
 ---
 
-## State Management
+## Platforms
 
-### State Sources
-
-The integration handles multiple state sources:
-
-1. **API State**: Polled from Govee cloud API
-   - Authoritative source for regular devices
-   - Not available for group devices
-
-2. **Optimistic State**: Assumed based on commands sent
-   - Used immediately after control commands
-   - Used exclusively for group devices
-   - Persists via RestoreEntity
-
-3. **Previous State**: Fallback when API fails
-   - Used during rate limit errors
-   - Used when device offline
-
-### State Update Strategy
-
-```python
-def update_state(device_id, api_response):
-    if device_id in coordinator.data:
-        # Preserve optimistic state (scenes, etc.)
-        state = coordinator.data[device_id]
-        state.update_from_api(api_response)
-    else:
-        # Create new state from API
-        state = GoveeDeviceState.from_api(device_id, api_response)
-
-    return state
-```
-
-### Optimistic Updates
-
-Optimistic updates provide responsive UI by updating state immediately:
-
-```python
-async def async_turn_on(self):
-    # Send command
-    await coordinator.async_control_device(...)
-
-    # Update state immediately (don't wait for API)
-    if coordinator.data and device_id in coordinator.data:
-        coordinator.data[device_id].power_state = True
-        coordinator.async_set_updated_data(coordinator.data)
-
-    # Next poll cycle will sync actual state
-```
+| Platform | Entity Types | Description |
+|----------|--------------|-------------|
+| `light` | GoveeLightEntity, GoveeSegmentLight | Main lights and RGBIC segments |
+| `scene` | GoveeSceneEntity | Dynamic scenes from Govee cloud |
+| `switch` | GoveePlugSwitchEntity, GoveeNightLightSwitchEntity | Smart plugs, night light toggle |
+| `sensor` | Rate limit, MQTT status | Diagnostic sensors |
+| `button` | Refresh scenes | Manual scene refresh |
 
 ---
 
-## Rate Limiting
+## Services
 
-### Govee API Limits
-
-- **Per-Minute**: 100 requests/minute
-- **Per-Day**: 10,000 requests/day
-
-### Implementation
-
-**Algorithm**:
-1. Track timestamps of all requests (minute and day windows)
-2. Before each request, check if limits would be exceeded
-3. If limit reached, sleep until oldest request expires
-4. Update limits from API response headers
-
-**Code**:
-```python
-async def acquire(self):
-    async with self._lock:
-        # Clean expired timestamps
-        now = time.time()
-        self._minute_timestamps = [t for t in self._minute_timestamps if now - t < 60]
-
-        # Check minute limit
-        if len(self._minute_timestamps) >= self._per_minute:
-            wait_time = 60 - (now - self._minute_timestamps[0])
-            await asyncio.sleep(wait_time)
-
-        # Record request
-        self._minute_timestamps.append(now)
-```
-
-### Strategies to Avoid Rate Limits
-
-1. **Increase Poll Interval**: Default 30s, recommend 60s+ for many devices
-2. **Scene Caching**: Scenes fetched once and cached
-3. **Parallel Fetching**: Faster updates = fewer requests per time window
-4. **Optimistic Updates**: Don't query state after every command
+| Service | Description |
+|---------|-------------|
+| `govee.refresh_scenes` | Refresh scene list from API |
+| `govee.set_segment_color` | Set color for RGBIC segments |
 
 ---
 
-## Device Capability Detection
-
-Devices report capabilities in their API response. The integration automatically detects:
-
-### Capability Types
-
-```python
-CAPABILITY_ON_OFF = "devices.capabilities.on_off"
-CAPABILITY_COLOR_SETTING = "devices.capabilities.color_setting"
-CAPABILITY_RANGE = "devices.capabilities.range"
-CAPABILITY_DYNAMIC_SCENE = "devices.capabilities.dynamic_scene"
-CAPABILITY_SEGMENT_COLOR = "devices.capabilities.segment_color_setting"
-```
-
-### Color Mode Detection
-
-```python
-def _determine_color_modes(self) -> set[ColorMode]:
-    modes = set()
-
-    if self._device.supports_rgb:
-        modes.add(ColorMode.RGB)
-
-    if self._device.supports_color_temp:
-        modes.add(ColorMode.COLOR_TEMP)
-
-    if not modes and self._device.supports_brightness:
-        modes.add(ColorMode.BRIGHTNESS)
-
-    if not modes:
-        modes.add(ColorMode.ON_OFF)
-
-    return modes
-```
-
-### Brightness Range Detection
-
-Different devices use different ranges:
-- Some: 0-100
-- Others: 0-254
-
-Detection:
-```python
-brightness_cap = device.get_capability(CAPABILITY_RANGE, INSTANCE_BRIGHTNESS)
-if brightness_cap:
-    min_val = brightness_cap["range"]["min"]
-    max_val = brightness_cap["range"]["max"]
-```
-
-Conversion:
-```python
-def ha_to_device_brightness(ha_brightness: int, device_max: int) -> int:
-    # HA uses 0-255, convert to device range
-    return int(ha_brightness / 255 * device_max)
-```
-
----
-
-## Error Handling Strategy
+## Error Handling
 
 ### Exception Hierarchy
 
 ```
 GoveeApiError (base)
-├── GoveeAuthError (401)
-├── GoveeRateLimitError (429)
-└── GoveeConnectionError (network)
+├── GoveeAuthError (401) → Triggers reauth, creates repair issue
+├── GoveeRateLimitError (429) → Creates repair issue, keeps previous state
+├── GoveeConnectionError → Logs warning, retries
+└── GoveeDeviceNotFoundError (400) → Expected for groups, uses optimistic state
 ```
 
-### Handling by Type
+### Repairs Framework
 
-**Auth Errors (401)**:
-```python
-try:
-    await client.get_devices()
-except GoveeAuthError as err:
-    raise ConfigEntryAuthFailed("Invalid API key") from err
-    # Triggers re-authentication flow
-```
+Actionable repair notifications:
 
-**Rate Limit Errors (429)**:
-```python
-except GoveeRateLimitError as err:
-    _LOGGER.warning("Rate limit hit, keeping previous state")
-    # Keep previous state, retry next poll cycle
-```
-
-**Connection Errors**:
-```python
-except GoveeConnectionError as err:
-    _LOGGER.error("Connection failed: %s", err)
-    raise UpdateFailed(f"Connection error: {err}") from err
-```
-
-**Group Device Errors** (expected):
-```python
-except GoveeApiError as err:
-    if is_group_device:
-        _LOGGER.info("State query failed for group [EXPECTED]")
-        # Use optimistic state
-    else:
-        _LOGGER.warning("Unexpected error: %s", err)
-```
+- **auth_failed**: Fixable, guides to reauth flow
+- **rate_limited**: Warning with reset time estimate
+- **mqtt_disconnected**: Warning about real-time updates
 
 ---
 
-## Group Device Support
+## Configuration Options
 
-### Challenge
-
-Govee Home app groups (SameModeGroup, BaseGroup, DreamViewScenic) have limited API support:
-- ✅ Control commands work
-- ❌ State queries fail ("devices not exist")
-
-### Solution
-
-**Optimistic State Tracking**:
-1. State cannot be queried from API
-2. Track state based on commands sent
-3. Use `RestoreEntity` to persist across restarts
-4. Mark as "available" even with `online=False`
-
-**Implementation**:
-```python
-# Entity availability
-@property
-def available(self) -> bool:
-    if self._is_group_device:
-        return True  # Always available for control
-
-    state = self.device_state
-    return state and state.online
-
-# State restoration
-async def async_added_to_hass(self):
-    await super().async_added_to_hass()
-
-    if self._is_group_device:
-        last_state = await self.async_get_last_state()
-        if last_state:
-            # Restore power state
-            if last_state.state == STATE_ON:
-                self.coordinator.data[self._device_id].power_state = True
-```
+| Option | Default | Description |
+|--------|---------|-------------|
+| `poll_interval` | 60s | State refresh frequency |
+| `enable_groups` | false | Include Govee app groups |
+| `enable_scenes` | true | Create scene entities |
+| `enable_segments` | true | Create segment entities for RGBIC |
 
 ---
 
-## Performance Optimizations
+## Quality Scale
 
-### 1. Parallel State Fetching
+The integration targets **Gold tier** compliance:
 
-**Before** (Sequential):
-```python
-for device_id, device in self.devices.items():
-    state = await self.client.get_device_state(device_id, device.sku)
-    # Time: O(n) - 10 devices = 10 seconds
-```
+- ✅ Config flow with test coverage
+- ✅ Unique entity IDs
+- ✅ Device info for all entities
+- ✅ Diagnostics platform
+- ✅ Reauthentication flow
+- ✅ Reconfigure flow
+- ✅ Repairs framework
+- ✅ Entity translations
+- ✅ Async dependencies
 
-**After** (Parallel):
-```python
-tasks = [
-    fetch_device_state(device_id, device)
-    for device_id, device in self.devices.items()
-]
-results = await asyncio.gather(*tasks)
-# Time: O(1) - 10 devices = 1 second (10x faster!)
-```
-
-### 2. Scene Caching
-
-Scenes are fetched once and cached:
-```python
-async def async_get_dynamic_scenes(self, device_id: str, refresh: bool = False):
-    if not refresh and device_id in self._scene_cache:
-        return self._scene_cache[device_id]  # Return cached
-
-    # Fetch from API only if not cached
-    scenes = await self.client.get_dynamic_scenes(device_id, device.sku)
-    self._scene_cache[device_id] = scenes
-    return scenes
-```
-
-### 3. Optimistic Updates
-
-State updated immediately after commands:
-```python
-await self.client.control_device(...)
-# Don't wait for API confirmation, update now
-self.data[device_id].apply_optimistic_update(instance, value)
-self.async_set_updated_data(self.data)
-```
-
----
-
-## Best Practices
-
-### For Contributors
-
-1. **Maintain Type Safety**: All code must have type annotations
-2. **Use Coordinator**: Never access API client directly from entities
-3. **Handle Errors**: Every API call must have error handling
-4. **Test Thoroughly**: 95%+ coverage required
-5. **Document Complex Logic**: Add comments for non-obvious code
-
-### For Users
-
-1. **Increase Poll Interval**: Use 60s+ for many devices
-2. **Use Optimistic Updates**: Don't disable for better responsiveness
-3. **Monitor Rate Limits**: Check `rate_limit_remaining` attributes
-4. **Control Individual Devices**: Avoid Govee Home app groups when possible
-
----
-
-## Version History
-
-- **2025.12.8**: Added re-authentication flow, parallel fetching, comprehensive docs
-- **2025.12.7**: Added group device support (experimental)
-- **2025.12.3**: Fixed scene selection persistence
-- Earlier: Initial Govee API v2.0 implementation
-
----
-
-## References
-
-- [Home Assistant Integration Documentation](https://developers.home-assistant.io/docs/creating_integration_manifest)
-- [DataUpdateCoordinator Best Practices](https://developers.home-assistant.io/docs/integration_fetching_data)
-- [Govee API v2.0 Documentation](https://developer.govee.com/)
+See `quality_scale.yaml` for detailed compliance tracking.

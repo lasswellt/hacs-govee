@@ -149,3 +149,7 @@ test_api_validation.py
 # Log files and captures
 logs/
 *.pcap
+
+# Local/temporary documentation (keep govee-protocol-reference.md)
+docs/epic-*.md
+docs/legacy-*.md

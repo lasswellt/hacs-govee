@@ -1,92 +1,92 @@
 {
-  "title": "Govee",
   "config": {
-    "abort": {
-      "already_configured": "Already configured. Only a single configuration possible.",
-      "reauth_successful": "Re-authentication successful"
-    },
-    "error": {
-      "cannot_connect": "Cannot connect. Is the API-Key correct and the internet connection working?",
-      "unknown": "Unknown Error."
-    },
     "step": {
       "user": {
-        "data": {
-          "api_key": "API Key",
-          "delay": "Poll Interval"
-        },
-        "title": "",
-        "description": "Get your API key from the Govee Home app: Profile → Settings → About Us → Apply for API Key"
-      },
-      "reauth_confirm": {
+        "title": "Govee API Key",
+        "description": "Enter your Govee API key from {api_url}",
         "data": {
           "api_key": "API Key"
-        },
+        }
+      },
+      "account": {
+        "title": "Govee Account (Optional)",
+        "description": "Enter Govee account credentials for real-time MQTT updates. Leave empty to skip.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
         "title": "Re-authenticate Govee",
-        "description": "Your API key is no longer valid. Please enter a new API key."
+        "description": "Your API key is invalid. Please enter a new one.",
+        "data": {
+          "api_key": "API Key"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Govee",
+        "description": "Update your Govee credentials. Current email: {current_email}",
+        "data": {
+          "api_key": "API Key",
+          "email": "Email (optional)",
+          "password": "Password (optional)"
+        },
+        "data_description": {
+          "api_key": "Your Govee API key",
+          "email": "Govee account email for real-time MQTT updates",
+          "password": "Leave empty to keep existing password, or enter new password"
+        }
       }
+    },
+    "error": {
+      "invalid_auth": "Invalid API key or credentials",
+      "invalid_account": "Invalid Govee account credentials",
+      "cannot_connect": "Failed to connect to Govee API",
+      "unknown": "Unexpected error occurred"
+    },
+    "abort": {
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Reconfiguration was successful"
     }
   },
   "options": {
-    "error": {
-      "cannot_connect": "Cannot connect. Is the API key correct and the internet connection working?",
-      "invalid_auth": "Invalid email or password for Govee account.",
-      "unknown": "Unknown Error."
-    },
     "step": {
       "init": {
+        "title": "Govee Options",
         "data": {
-          "delay": "Poll interval (seconds)",
-          "inter_command_delay": "Command delay (ms)",
-          "use_assumed_state": "Use assumed state",
-          "offline_is_off": "Show offline devices as off",
-          "enable_group_devices": "Enable group devices",
-          "api_key": "API Key (leave blank to keep current)",
-          "email": "Govee Email (leave blank to keep current)",
-          "password": "Govee Password (leave blank to keep current)"
-        },
-        "data_description": {
-          "delay": "How often to poll device states (30-300 seconds)",
-          "inter_command_delay": "Delay between API commands. Prevents flickering (100-2000ms)",
-          "use_assumed_state": "Show separate on/off buttons when state is unreliable",
-          "offline_is_off": "Treat offline devices as 'off' instead of 'unavailable'",
-          "enable_group_devices": "Enable Govee app group devices (experimental)",
-          "api_key": "Your Govee API key",
-          "email": "Govee account email (enables real-time MQTT)",
-          "password": "Govee account password"
-        },
-        "title": "Govee Options"
+          "poll_interval": "Polling interval (seconds)",
+          "enable_groups": "Enable group devices",
+          "enable_scenes": "Enable scene entities",
+          "enable_segments": "Enable segment entities"
+        }
       }
     }
   },
   "entity": {
     "light": {
-      "segment": {
-        "name": "Segment {segment_number}"
+      "govee_light": {
+        "name": "{device_name}"
+      },
+      "govee_segment": {
+        "name": "{device_name} Segment {segment_index}"
       }
     },
-    "select": {
-      "scene": {
-        "name": "Scene"
-      },
-      "diy_scene": {
-        "name": "DIY Scene"
+    "scene": {
+      "govee_scene": {
+        "name": "{scene_name}"
       }
     },
     "switch": {
-      "nightlight": {
-        "name": "Night Light"
+      "govee_plug": {
+        "name": "{device_name}"
       },
-      "outlet": {
-        "name": "Outlet"
+      "govee_night_light": {
+        "name": "Night Light"
       }
     },
     "sensor": {
-      "rate_limit_remaining_minute": {
-        "name": "API Rate Limit (Minute)"
-      },
-      "rate_limit_remaining_day": {
-        "name": "API Rate Limit (Day)"
+      "rate_limit_remaining": {
+        "name": "API Rate Limit Remaining"
       },
       "mqtt_status": {
         "name": "MQTT Status"
@@ -95,107 +95,59 @@
     "button": {
       "refresh_scenes": {
         "name": "Refresh Scenes"
-      },
-      "identify": {
-        "name": "Identify"
       }
     }
   },
   "services": {
+    "refresh_scenes": {
+      "name": "Refresh Scenes",
+      "description": "Refresh available scenes from the Govee API",
+      "fields": {
+        "device_id": {
+          "name": "Device ID",
+          "description": "Specific device to refresh (optional)"
+        }
+      }
+    },
     "set_segment_color": {
       "name": "Set Segment Color",
-      "description": "Set color for specific segments of a Govee RGBIC light strip.",
+      "description": "Set color for specific segments on RGBIC devices",
       "fields": {
+        "device_id": {
+          "name": "Device ID",
+          "description": "Device ID of the RGBIC light"
+        },
         "segments": {
           "name": "Segments",
-          "description": "List of segment indices (0-based)."
+          "description": "List of segment indices (0-based)"
         },
         "rgb_color": {
           "name": "RGB Color",
-          "description": "RGB color as [r, g, b] with values 0-255."
+          "description": "Color as [R, G, B] values"
         }
       }
-    },
-    "set_segment_brightness": {
-      "name": "Set Segment Brightness",
-      "description": "Set brightness for specific segments of a Govee RGBIC light strip.",
-      "fields": {
-        "segments": {
-          "name": "Segments",
-          "description": "List of segment indices (0-based)."
-        },
-        "brightness": {
-          "name": "Brightness",
-          "description": "Brightness percentage (0-100)."
-        }
-      }
-    },
-    "set_music_mode": {
-      "name": "Set Music Mode",
-      "description": "Activate music reactive mode on a Govee light.",
-      "fields": {
-        "mode": {
-          "name": "Mode",
-          "description": "Music mode name."
-        },
-        "sensitivity": {
-          "name": "Sensitivity",
-          "description": "Microphone sensitivity (0-100)."
-        },
-        "auto_color": {
-          "name": "Auto Color",
-          "description": "Enable automatic color changes."
-        },
-        "rgb_color": {
-          "name": "Fixed Color",
-          "description": "Fixed color when auto_color is disabled."
-        }
-      }
-    },
-    "refresh_scenes": {
-      "name": "Refresh Scenes",
-      "description": "Refresh the scene list from Govee cloud."
-    }
-  },
-  "exceptions": {
-    "unknown_error": {
-      "message": "An unexpected error occurred with the Govee integration."
-    },
-    "authentication_failed": {
-      "message": "Authentication failed. Please check your Govee API key."
-    },
-    "connection_failed": {
-      "message": "Failed to connect to Govee API. Please check your internet connection."
-    },
-    "rate_limit_exceeded": {
-      "message": "Govee API rate limit exceeded. Retry in {retry_after} seconds."
-    },
-    "device_error": {
-      "message": "Error with device {device_name} ({device_id})."
-    },
-    "capability_not_supported": {
-      "message": "Device {device_id} does not support capability: {capability}."
-    },
-    "scene_error": {
-      "message": "Scene operation failed for scene: {scene_name}."
     }
   },
   "issues": {
-    "group_device_limitation": {
-      "title": "Group Device Has Limited API Support",
-      "description": "The device **{device_name}** is a Govee Home app group device (SameModeGroup, BaseGroup, or DreamViewScenic).\n\nThese group devices have **experimental support** in this integration:\n- ✅ **Control commands work** (on/off, brightness, color, scenes)\n- ❌ **State queries fail** - device will use optimistic state tracking\n- ⚠️ **Device shows as available** even when state cannot be queried\n\nThis is a limitation of the Govee cloud API. Group devices created in the Govee Home app do not support state queries via the API.\n\n**Recommendation:** If you need accurate state feedback, control individual devices instead of groups."
-    },
-    "rate_limit_minute_warning": {
-      "title": "Approaching Per-Minute Rate Limit",
-      "description": "Your Govee integration is approaching the API rate limit.\n\n**Current status:** {remaining} requests remaining this minute (limit: 100/minute)\n\n**What this means:**\n- If the limit is exceeded, API requests will be delayed automatically\n- You may experience slower response times\n\n**Recommended actions:**\n- Increase the poll interval in integration options\n- Reduce the number of devices being polled\n- Avoid excessive manual refresh operations\n\nThis warning will clear automatically when the rate limit resets."
-    },
-    "rate_limit_day_warning": {
-      "title": "Approaching Daily Rate Limit",
-      "description": "Your Govee integration is approaching the daily API rate limit.\n\n**Current status:** {remaining} requests remaining today (limit: 10,000/day)\n\n**What this means:**\n- If the daily limit is exceeded, API requests may fail\n- The integration may stop updating device states\n\n**Recommended actions:**\n- **Immediately increase** the poll interval in integration options (recommended: 60+ seconds)\n- Consider reducing the number of devices\n- The daily limit resets at midnight UTC\n\nThis warning will clear automatically when the rate limit resets."
-    },
     "auth_failed": {
-      "title": "Govee Authentication Failed",
-      "description": "The Govee API key is no longer valid.\n\n**What this means:**\n- The integration cannot communicate with Govee servers\n- Device control and state updates will not work\n\n**How to fix:**\n1. Go to Settings → Devices & Services → Govee\n2. Click 'Configure' or 'Reconfigure'\n3. Enter a new valid API key\n\n**Getting a new API key:**\n1. Open the Govee Home app\n2. Go to Profile → Settings → About Us → Apply for API Key"
+      "title": "Govee authentication failed",
+      "description": "The API key for {entry_title} is no longer valid. The integration cannot communicate with Govee until you re-authenticate.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Re-authenticate Govee",
+            "description": "Click submit to start the re-authentication process for {entry_title}."
+          }
+        }
+      }
+    },
+    "rate_limited": {
+      "title": "Govee API rate limited",
+      "description": "The Govee API has rate limited requests for {entry_title}. Normal operation will resume in approximately {reset_time}. Consider increasing the poll interval in the integration options to reduce API calls."
+    },
+    "mqtt_disconnected": {
+      "title": "Govee MQTT disconnected",
+      "description": "Real-time updates for {entry_title} are unavailable. Reason: {reason}. The integration will continue to work using polling. Check your Govee account credentials if this persists."
     }
   }
 }

@@ -1,388 +1,347 @@
 """Config flow for Govee integration.
 
-Credential storage follows HA best practices:
-- Sensitive data (api_key, email, password) in entry.data (immutable)
-- User preferences (poll_interval) in entry.options (mutable)
-- TextSelectorType.PASSWORD for credential fields
-- Reauthentication flow for expired credentials
+Fresh version 1 - no migration complexity.
+Supports API key authentication with optional account login for MQTT.
 """
+
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
-
-from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
-from homeassistant.const import CONF_API_KEY, CONF_EMAIL, CONF_PASSWORD
-from homeassistant.core import callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.selector import (
-    BooleanSelector,
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
-    TextSelector,
-    TextSelectorConfig,
-    TextSelectorType,
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
 )
+from homeassistant.core import callback
 
 from .api import (
-    GoveeApiClient,
     GoveeApiError,
     GoveeAuthError,
+    GoveeIotCredentials,
     validate_govee_credentials,
+)
+from .api.client import validate_api_key
+from .const import (
+    CONF_API_KEY,
+    CONF_EMAIL,
+    CONF_ENABLE_GROUPS,
+    CONF_ENABLE_SCENES,
+    CONF_ENABLE_SEGMENTS,
+    CONF_PASSWORD,
+    CONF_POLL_INTERVAL,
+    CONFIG_VERSION,
+    DEFAULT_ENABLE_GROUPS,
+    DEFAULT_ENABLE_SCENES,
+    DEFAULT_ENABLE_SEGMENTS,
+    DEFAULT_POLL_INTERVAL,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "govee"
-CONF_POLL_INTERVAL = "delay"  # Match strings.json key
-CONF_INTER_COMMAND_DELAY = "inter_command_delay"
-CONF_USE_ASSUMED_STATE = "use_assumed_state"
-CONF_OFFLINE_IS_OFF = "offline_is_off"
-CONF_ENABLE_GROUP_DEVICES = "enable_group_devices"
 
-DEFAULT_POLL_INTERVAL = 60
-MIN_POLL_INTERVAL = 30
-MAX_POLL_INTERVAL = 300
-DEFAULT_INTER_COMMAND_DELAY = 500
+class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Govee.
 
-
-class GoveeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle Govee config flow.
-
-    Two authentication modes:
-    1. API key only: Basic functionality with polling
-    2. API key + email/password: Full functionality with AWS IoT real-time updates
+    Steps:
+    1. User enters API key (required)
+    2. Optionally enter email/password for MQTT real-time updates
+    3. Create config entry
     """
 
-    VERSION = 3  # Increment for new credential storage format
+    VERSION = CONFIG_VERSION
+
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._api_key: str | None = None
+        self._email: str | None = None
+        self._password: str | None = None
+        self._iot_credentials: GoveeIotCredentials | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Get the options flow for this handler."""
+        return GoveeOptionsFlow(config_entry)
 
     async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
+        self,
+        user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
-        """Handle user configuration step."""
+        """Handle the initial step - API key entry."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             api_key = user_input[CONF_API_KEY]
-            email = user_input.get(CONF_EMAIL, "").strip() or None
-            password = user_input.get(CONF_PASSWORD, "").strip() or None
 
-            # Validate API key
             try:
-                session = async_get_clientsession(self.hass)
-                async with GoveeApiClient(api_key, session=session) as client:
-                    await client.test_connection()
+                await validate_api_key(api_key)
+                self._api_key = api_key
+
+                # Proceed to optional account step for MQTT
+                return await self.async_step_account()
+
             except GoveeAuthError:
-                errors[CONF_API_KEY] = "invalid_api_key"
+                errors["base"] = "invalid_auth"
             except GoveeApiError as err:
-                _LOGGER.error("API connection failed: %s", err)
+                _LOGGER.error("API validation failed: %s", err)
                 errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected error validating API key")
+                _LOGGER.exception("Unexpected error during API validation")
                 errors["base"] = "unknown"
-
-            # Validate Govee credentials if provided
-            if not errors and email and password:
-                try:
-                    await validate_govee_credentials(email, password, session)
-                except GoveeAuthError:
-                    errors[CONF_EMAIL] = "invalid_credentials"
-                except GoveeApiError as err:
-                    _LOGGER.warning("Govee login failed: %s (IoT disabled)", err)
-                    # Don't block setup - IoT is optional enhancement
-                except Exception:
-                    _LOGGER.exception("Unexpected error validating credentials")
-                    # Don't block setup - continue without IoT
-
-            if not errors:
-                # Store credentials in data (immutable, sensitive)
-                # Store preferences in options (mutable)
-                return self.async_create_entry(
-                    title="Govee",
-                    data={
-                        CONF_API_KEY: api_key,
-                        CONF_EMAIL: email,
-                        CONF_PASSWORD: password,
-                    },
-                    options={
-                        CONF_POLL_INTERVAL: user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
-                    },
-                )
-
-        # Build schema with proper input types
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_API_KEY): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                ),
-                vol.Optional(CONF_EMAIL): TextSelector(
-                    TextSelectorConfig(
-                        type=TextSelectorType.EMAIL,
-                        autocomplete="username",
-                    )
-                ),
-                vol.Optional(CONF_PASSWORD): TextSelector(
-                    TextSelectorConfig(
-                        type=TextSelectorType.PASSWORD,
-                        autocomplete="current-password",
-                    )
-                ),
-                vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): NumberSelector(
-                    NumberSelectorConfig(
-                        min=MIN_POLL_INTERVAL,
-                        max=MAX_POLL_INTERVAL,
-                        step=1,
-                        mode=NumberSelectorMode.BOX,
-                        unit_of_measurement="seconds",
-                    )
-                ),
-            }
-        )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=schema,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_API_KEY): str,
+                }
+            ),
             errors=errors,
             description_placeholders={
-                "iot_note": "Email/password enables real-time updates via AWS IoT MQTT"
+                "api_url": "https://developer.govee.com/",
+            },
+        )
+
+    async def async_step_account(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Handle optional account credentials for MQTT.
+
+        Users can skip this step if they don't want real-time updates.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Check if user wants to skip MQTT
+            if not user_input.get(CONF_EMAIL):
+                # Skip MQTT, create entry with API key only
+                return self._create_entry()
+
+            email = user_input[CONF_EMAIL]
+            password = user_input[CONF_PASSWORD]
+
+            try:
+                self._iot_credentials = await validate_govee_credentials(email, password)
+                self._email = email
+                self._password = password
+
+                return self._create_entry()
+
+            except GoveeAuthError:
+                errors["base"] = "invalid_auth"
+            except GoveeApiError as err:
+                _LOGGER.error("Account validation failed: %s", err)
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during account validation")
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="account",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_EMAIL): str,
+                    vol.Optional(CONF_PASSWORD): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "note": "Optional: Enter Govee account for real-time MQTT updates",
+            },
+        )
+
+    def _create_entry(self) -> ConfigFlowResult:
+        """Create the config entry."""
+        data: dict[str, Any] = {
+            CONF_API_KEY: self._api_key,
+        }
+
+        # Add account credentials if provided
+        if self._email and self._password:
+            data[CONF_EMAIL] = self._email
+            data[CONF_PASSWORD] = self._password
+
+        return self.async_create_entry(
+            title="Govee",
+            data=data,
+            options={
+                CONF_POLL_INTERVAL: DEFAULT_POLL_INTERVAL,
+                CONF_ENABLE_GROUPS: DEFAULT_ENABLE_GROUPS,
+                CONF_ENABLE_SCENES: DEFAULT_ENABLE_SCENES,
+                CONF_ENABLE_SEGMENTS: DEFAULT_ENABLE_SEGMENTS,
             },
         )
 
     async def async_step_reauth(
-        self, entry_data: Mapping[str, Any]
+        self,
+        entry_data: dict[str, Any],
     ) -> ConfigFlowResult:
-        """Handle reauthentication triggered by ConfigEntryAuthFailed."""
+        """Handle re-authentication request."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
-        self, user_input: dict[str, Any] | None = None
+        self,
+        user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
-        """Handle reauth confirmation step."""
+        """Handle re-authentication confirmation."""
         errors: dict[str, str] = {}
-        reauth_entry = self._get_reauth_entry()
 
         if user_input is not None:
             api_key = user_input[CONF_API_KEY]
-            password = user_input.get(CONF_PASSWORD, "").strip() or None
 
-            # Validate API key
             try:
-                session = async_get_clientsession(self.hass)
-                async with GoveeApiClient(api_key, session=session) as client:
-                    await client.test_connection()
+                await validate_api_key(api_key)
+
+                # Update existing entry
+                entry = self.hass.config_entries.async_get_entry(
+                    self.context["entry_id"]
+                )
+                if entry:
+                    self.hass.config_entries.async_update_entry(
+                        entry,
+                        data={**entry.data, CONF_API_KEY: api_key},
+                    )
+                    await self.hass.config_entries.async_reload(entry.entry_id)
+                    return self.async_abort(reason="reauth_successful")
+
             except GoveeAuthError:
-                errors[CONF_API_KEY] = "invalid_api_key"
+                errors["base"] = "invalid_auth"
             except GoveeApiError:
                 errors["base"] = "cannot_connect"
             except Exception:
+                _LOGGER.exception("Unexpected error during reauth")
                 errors["base"] = "unknown"
-
-            # Validate Govee credentials if email exists and password provided
-            email = reauth_entry.data.get(CONF_EMAIL)
-            if not errors and email and password:
-                try:
-                    await validate_govee_credentials(email, password, session)
-                except GoveeAuthError:
-                    errors[CONF_PASSWORD] = "invalid_credentials"
-                except Exception:
-                    pass  # IoT is optional
-
-            if not errors:
-                # Update credentials
-                data_updates: dict[str, Any] = {CONF_API_KEY: api_key}
-                if password:
-                    data_updates[CONF_PASSWORD] = password
-
-                return self.async_update_reload_and_abort(
-                    reauth_entry,
-                    data_updates=data_updates,
-                )
-
-        # Show form with existing email (read-only context)
-        existing_email = reauth_entry.data.get(CONF_EMAIL)
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_API_KEY): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                ),
-            }
-        )
-
-        # Add password field if email exists
-        if existing_email:
-            schema = schema.extend(
-                {
-                    vol.Optional(CONF_PASSWORD): TextSelector(
-                        TextSelectorConfig(
-                            type=TextSelectorType.PASSWORD,
-                            autocomplete="current-password",
-                        )
-                    ),
-                }
-            )
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=schema,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_API_KEY): str,
+                }
+            ),
             errors=errors,
-            description_placeholders={"email": existing_email or "not configured"},
         )
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> GoveeOptionsFlow:
-        """Get options flow handler."""
-        return GoveeOptionsFlow()
-
-
-class GoveeOptionsFlow(config_entries.OptionsFlow):
-    """Handle Govee options flow."""
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
+    async def async_step_reconfigure(
+        self,
+        user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
-        """Handle options flow."""
+        """Handle reconfiguration of the integration.
+
+        Allows users to update API key and account credentials without
+        removing and re-adding the integration.
+        """
         errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
 
         if user_input is not None:
-            # Extract values from flat input
-            new_api_key = user_input.get(CONF_API_KEY, "").strip()
-            new_email = user_input.get(CONF_EMAIL, "").strip() or None
-            new_password = user_input.get(CONF_PASSWORD, "").strip() or None
+            api_key = user_input[CONF_API_KEY]
 
-            # Use existing values if not provided
-            if not new_api_key:
-                new_api_key = self.config_entry.data.get(CONF_API_KEY, "")
+            try:
+                await validate_api_key(api_key)
 
-            # Validate API key if changed
-            current_api_key = self.config_entry.data.get(CONF_API_KEY, "")
-            if new_api_key and new_api_key != current_api_key:
-                session = async_get_clientsession(self.hass)
-                client = GoveeApiClient(new_api_key, session=session)
-                try:
-                    await client.get_devices()
-                except GoveeAuthError:
-                    errors["base"] = "cannot_connect"
-                except GoveeApiError:
-                    errors["base"] = "cannot_connect"
-
-            # Validate Govee account if both email and password provided
-            if new_email and new_password and not errors:
-                session = async_get_clientsession(self.hass)
-                try:
-                    await validate_govee_credentials(new_email, new_password, session)
-                except GoveeAuthError:
-                    errors["base"] = "invalid_auth"
-                except GoveeApiError as err:
-                    _LOGGER.warning("Govee API error during credential validation: %s", err)
-                    errors["base"] = "cannot_connect"
-                except Exception as err:
-                    _LOGGER.warning("Unexpected error validating credentials: %s", err)
-
-            if not errors:
-                # Build options dict
-                new_options = {
-                    CONF_POLL_INTERVAL: user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
-                    CONF_INTER_COMMAND_DELAY: user_input.get(CONF_INTER_COMMAND_DELAY, DEFAULT_INTER_COMMAND_DELAY),
-                    CONF_USE_ASSUMED_STATE: user_input.get(CONF_USE_ASSUMED_STATE, True),
-                    CONF_OFFLINE_IS_OFF: user_input.get(CONF_OFFLINE_IS_OFF, False),
-                    CONF_ENABLE_GROUP_DEVICES: user_input.get(CONF_ENABLE_GROUP_DEVICES, False),
+                # Build updated data
+                new_data: dict[str, Any] = {
+                    **reconfigure_entry.data,
+                    CONF_API_KEY: api_key,
                 }
 
-                # Update entry.data if credentials changed
-                new_data = dict(self.config_entry.data)
-                data_changed = False
+                # Handle optional account credentials
+                email = user_input.get(CONF_EMAIL, "").strip()
+                password = user_input.get(CONF_PASSWORD, "").strip()
 
-                if new_api_key and new_api_key != current_api_key:
-                    new_data[CONF_API_KEY] = new_api_key
-                    data_changed = True
+                if email and password:
+                    # Validate account credentials if provided
+                    try:
+                        await validate_govee_credentials(email, password)
+                        new_data[CONF_EMAIL] = email
+                        new_data[CONF_PASSWORD] = password
+                    except GoveeAuthError:
+                        errors["base"] = "invalid_account"
+                        # Continue to show form with error
+                    except GoveeApiError:
+                        errors["base"] = "cannot_connect"
+                elif not email and not password:
+                    # Remove account credentials if both are empty
+                    new_data.pop(CONF_EMAIL, None)
+                    new_data.pop(CONF_PASSWORD, None)
 
-                if new_email is not None:
-                    new_data[CONF_EMAIL] = new_email
-                    data_changed = True
-
-                if new_password is not None:
-                    new_data[CONF_PASSWORD] = new_password
-                    data_changed = True
-
-                if data_changed:
-                    self.hass.config_entries.async_update_entry(
-                        self.config_entry,
-                        data=new_data,
+                if not errors:
+                    return self.async_update_reload_and_abort(
+                        reconfigure_entry,
+                        data_updates=new_data,
                     )
 
-                return self.async_create_entry(title="", data=new_options)
+            except GoveeAuthError:
+                errors["base"] = "invalid_auth"
+            except GoveeApiError:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during reconfigure")
+                errors["base"] = "unknown"
 
-        # Get current values
-        options = self.config_entry.options
-        data = self.config_entry.data
+        # Pre-fill current values (except sensitive data)
+        current_email = reconfigure_entry.data.get(CONF_EMAIL, "")
 
-        # Build flat schema
-        schema = vol.Schema(
-            {
-                # Polling settings
-                vol.Optional(
-                    CONF_POLL_INTERVAL,
-                    default=options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=MIN_POLL_INTERVAL,
-                        max=MAX_POLL_INTERVAL,
-                        step=5,
-                        mode=NumberSelectorMode.SLIDER,
-                    )
-                ),
-                vol.Optional(
-                    CONF_INTER_COMMAND_DELAY,
-                    default=options.get(CONF_INTER_COMMAND_DELAY, DEFAULT_INTER_COMMAND_DELAY),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=100,
-                        max=2000,
-                        step=100,
-                        mode=NumberSelectorMode.SLIDER,
-                    )
-                ),
-                # Behavior settings
-                vol.Required(
-                    CONF_USE_ASSUMED_STATE,
-                    default=options.get(CONF_USE_ASSUMED_STATE, True),
-                ): BooleanSelector(),
-                vol.Required(
-                    CONF_OFFLINE_IS_OFF,
-                    default=options.get(CONF_OFFLINE_IS_OFF, False),
-                ): BooleanSelector(),
-                vol.Required(
-                    CONF_ENABLE_GROUP_DEVICES,
-                    default=options.get(CONF_ENABLE_GROUP_DEVICES, False),
-                ): BooleanSelector(),
-                # Credentials (optional - leave blank to keep existing)
-                vol.Optional(
-                    CONF_API_KEY,
-                    description={"suggested_value": data.get(CONF_API_KEY, "")},
-                ): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                ),
-                vol.Optional(
-                    CONF_EMAIL,
-                    description={"suggested_value": data.get(CONF_EMAIL, "")},
-                ): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.EMAIL)
-                ),
-                vol.Optional(
-                    CONF_PASSWORD,
-                ): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                ),
-            }
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_API_KEY): str,
+                    vol.Optional(CONF_EMAIL, default=current_email): str,
+                    vol.Optional(CONF_PASSWORD): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "current_email": current_email or "not configured",
+            },
         )
 
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+
+class GoveeOptionsFlow(OptionsFlow):
+    """Handle options for Govee integration."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self._config_entry = config_entry
+
+    async def async_step_init(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Handle options flow."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options = self._config_entry.options
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_POLL_INTERVAL,
+                        default=options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=30, max=300)),
+                    vol.Optional(
+                        CONF_ENABLE_GROUPS,
+                        default=options.get(CONF_ENABLE_GROUPS, DEFAULT_ENABLE_GROUPS),
+                    ): bool,
+                    vol.Optional(
+                        CONF_ENABLE_SCENES,
+                        default=options.get(CONF_ENABLE_SCENES, DEFAULT_ENABLE_SCENES),
+                    ): bool,
+                    vol.Optional(
+                        CONF_ENABLE_SEGMENTS,
+                        default=options.get(CONF_ENABLE_SEGMENTS, DEFAULT_ENABLE_SEGMENTS),
+                    ): bool,
+                }
+            ),
+        )

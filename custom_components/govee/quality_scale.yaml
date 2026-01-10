@@ -1,0 +1,163 @@
+# Home Assistant Integration Quality Scale
+# https://developers.home-assistant.io/docs/integration_quality_scale_index
+#
+# This file tracks compliance with Home Assistant's quality scale requirements.
+
+rules:
+  # Bronze tier requirements
+  action-setup:
+    status: done
+    comment: Services registered in async_setup_entry via async_setup_services
+  appropriate-polling:
+    status: done
+    comment: Uses DataUpdateCoordinator with configurable poll interval (default 60s)
+  brands:
+    status: exempt
+    comment: HACS integration, not core
+  common-modules:
+    status: done
+    comment: Uses homeassistant.helpers, entity platforms, coordinator pattern
+  config-flow:
+    status: done
+    comment: Full config flow with user, account, and options steps
+  config-flow-test-coverage:
+    status: done
+    comment: Config flow logic tested in test_config_flow.py
+  dependency-transparency:
+    status: done
+    comment: All requirements in manifest.json (aiohttp-retry, aiomqtt, cryptography)
+  docs-actions:
+    status: done
+    comment: Services documented in services.yaml with descriptions
+  docs-high-level-description:
+    status: done
+    comment: README.md provides integration overview
+  docs-installation-instructions:
+    status: done
+    comment: HACS installation documented in README.md
+  docs-removal-instructions:
+    status: done
+    comment: Standard HACS removal applies
+  entity-event-setup:
+    status: done
+    comment: Entities use coordinator pattern for state updates
+  entity-unique-id:
+    status: done
+    comment: All entities have unique IDs based on device_id
+  has-entity-name:
+    status: done
+    comment: All entities use has_entity_name = True
+  runtime-data:
+    status: done
+    comment: Uses entry.runtime_data for coordinator storage
+  test-before-configure:
+    status: done
+    comment: API key validated before config entry creation
+  test-before-setup:
+    status: done
+    comment: Coordinator validates API connection in async_config_entry_first_refresh
+  unique-config-entry:
+    status: done
+    comment: Config entries are unique per API key
+
+  # Silver tier requirements
+  config-entry-unloading:
+    status: done
+    comment: Full unload support with platform unloading and client cleanup
+  log-when-unavailable:
+    status: done
+    comment: UpdateFailed exception logged when API fails
+  parallel-updates:
+    status: done
+    comment: DEFAULT_PARALLEL_UPDATES set per platform
+  reauthentication-flow:
+    status: done
+    comment: Reauth flow implemented for expired API keys
+  test-coverage:
+    status: done
+    comment: 143+ tests covering models, API, coordinator, config flow
+
+  # Gold tier requirements
+  devices:
+    status: done
+    comment: DeviceInfo provided for all entities with manufacturer, model, identifiers
+  diagnostics:
+    status: done
+    comment: Diagnostics platform implemented with device and config redaction
+  discovery:
+    status: exempt
+    comment: Cloud API integration, no local discovery available
+  discovery-update-info:
+    status: exempt
+    comment: Cloud API integration, device info updated via API polling
+  docs-configuration-parameters:
+    status: done
+    comment: Options (poll interval, scenes, segments, groups) documented
+  docs-data-update:
+    status: done
+    comment: Polling and MQTT push documented in README
+  docs-examples:
+    status: todo
+    comment: Example automations could be added
+  docs-known-limitations:
+    status: done
+    comment: API rate limits and cloud dependency documented
+  docs-supported-devices:
+    status: done
+    comment: Device categories (lights, plugs, sensors) listed in README
+  docs-supported-functions:
+    status: done
+    comment: Supported features (on/off, brightness, color, scenes) documented
+  docs-troubleshooting:
+    status: done
+    comment: Troubleshooting section in README with common issues
+  docs-use-cases:
+    status: todo
+    comment: Use case examples could be expanded
+  dynamic-devices:
+    status: done
+    comment: Devices discovered and updated via API polling
+  entity-category:
+    status: done
+    comment: Diagnostic entities use EntityCategory.DIAGNOSTIC
+  entity-device-class:
+    status: done
+    comment: Appropriate device classes (outlet, sensor types) assigned
+  entity-disabled-by-default:
+    status: done
+    comment: Diagnostic sensors disabled by default
+  entity-translations:
+    status: done
+    comment: Full translations in en.json and strings.json
+  exception-translations:
+    status: done
+    comment: Config flow errors have translation keys
+  icon-translations:
+    status: exempt
+    comment: Uses default icons per device class
+  reconfigure-flow:
+    status: done
+    comment: Reconfigure flow allows updating API key and account credentials
+  repair-issues:
+    status: done
+    comment: Repairs framework integration for auth failures, rate limits, and MQTT issues
+  stale-devices:
+    status: todo
+    comment: Device removal detection not yet implemented
+
+  # Platinum tier requirements
+  async-dependency:
+    status: done
+    comment: All dependencies (aiohttp, aiomqtt) are async-native
+  inject-websession:
+    status: done
+    comment: Uses async_get_clientsession from homeassistant.helpers.aiohttp_client
+  strict-typing:
+    status: done
+    comment: Type hints throughout codebase
+
+# Overall quality tier assessment
+# Bronze: All requirements met
+# Silver: All requirements met
+# Gold: Most requirements met, some todo items
+# Platinum: Most requirements met
