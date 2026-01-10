@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
@@ -15,7 +15,7 @@ from custom_components.govee.api.exceptions import (
     GoveeDeviceNotFoundError,
     GoveeRateLimitError,
 )
-from custom_components.govee.models import PowerCommand, RGBColor
+from custom_components.govee.models import PowerCommand
 
 
 # ==============================================================================
@@ -264,7 +264,6 @@ class TestErrorResponses:
 
     def test_rate_limit_response(self):
         """Test 429 rate limit response."""
-        response_code = 429
         retry_after = 60
 
         err = GoveeRateLimitError(retry_after=float(retry_after))
@@ -273,7 +272,6 @@ class TestErrorResponses:
 
     def test_device_not_found_response(self):
         """Test 400 device not found response."""
-        response_code = 400
         message = "devices not exist"
 
         # Check if message indicates device not found

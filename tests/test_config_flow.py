@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 import pytest
 
 from custom_components.govee.api.exceptions import GoveeApiError, GoveeAuthError
@@ -178,12 +178,14 @@ class TestOptionsFlow:
 
     def test_options_update(self):
         """Test options can be updated."""
-        options = {
+        # Original options
+        original = {
             CONF_POLL_INTERVAL: 60,
             CONF_ENABLE_GROUPS: False,
             CONF_ENABLE_SCENES: True,
             CONF_ENABLE_SEGMENTS: True,
         }
+        assert original[CONF_POLL_INTERVAL] == 60
 
         # Update options
         new_options = {
@@ -418,6 +420,7 @@ class TestReconfigureFlow:
             CONF_EMAIL: "old@example.com",
             CONF_PASSWORD: "old_password",
         }
+        assert existing_data[CONF_EMAIL] == "old@example.com"
 
         # User clears email and password
         new_data = {CONF_API_KEY: "new_key"}

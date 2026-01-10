@@ -131,15 +131,8 @@
   "issues": {
     "auth_failed": {
       "title": "Govee authentication failed",
-      "description": "The API key for {entry_title} is no longer valid. The integration cannot communicate with Govee until you re-authenticate.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Re-authenticate Govee",
-            "description": "Click submit to start the re-authentication process for {entry_title}."
-          }
-        }
-      }
+      "fixable": true,
+      "description": "The API key for {entry_title} is no longer valid. The integration cannot communicate with Govee until you re-authenticate."
     },
     "rate_limited": {
       "title": "Govee API rate limited",
