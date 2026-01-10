@@ -136,6 +136,11 @@ class GoveeCapability:
         return self.type == CAPABILITY_DYNAMIC_SCENE
 
     @property
+    def is_diy_scene(self) -> bool:
+        """Check if this is a DIY scene capability."""
+        return self.type == CAPABILITY_DIY_SCENE
+
+    @property
     def is_toggle(self) -> bool:
         """Check if this is a toggle capability."""
         return self.type == CAPABILITY_TOGGLE
@@ -200,6 +205,11 @@ class GoveeDevice:
     def supports_scenes(self) -> bool:
         """Check if device supports dynamic scenes."""
         return any(cap.is_scene for cap in self.capabilities)
+
+    @property
+    def supports_diy_scenes(self) -> bool:
+        """Check if device supports DIY scenes."""
+        return any(cap.is_diy_scene for cap in self.capabilities)
 
     @property
     def supports_night_light(self) -> bool:

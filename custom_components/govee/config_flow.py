@@ -28,12 +28,14 @@ from .api.client import validate_api_key
 from .const import (
     CONF_API_KEY,
     CONF_EMAIL,
+    CONF_ENABLE_DIY_SCENES,
     CONF_ENABLE_GROUPS,
     CONF_ENABLE_SCENES,
     CONF_ENABLE_SEGMENTS,
     CONF_PASSWORD,
     CONF_POLL_INTERVAL,
     CONFIG_VERSION,
+    DEFAULT_ENABLE_DIY_SCENES,
     DEFAULT_ENABLE_GROUPS,
     DEFAULT_ENABLE_SCENES,
     DEFAULT_ENABLE_SEGMENTS,
@@ -174,6 +176,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_POLL_INTERVAL: DEFAULT_POLL_INTERVAL,
                 CONF_ENABLE_GROUPS: DEFAULT_ENABLE_GROUPS,
                 CONF_ENABLE_SCENES: DEFAULT_ENABLE_SCENES,
+                CONF_ENABLE_DIY_SCENES: DEFAULT_ENABLE_DIY_SCENES,
                 CONF_ENABLE_SEGMENTS: DEFAULT_ENABLE_SEGMENTS,
             },
         )
@@ -337,6 +340,10 @@ class GoveeOptionsFlow(OptionsFlow):
                     vol.Optional(
                         CONF_ENABLE_SCENES,
                         default=options.get(CONF_ENABLE_SCENES, DEFAULT_ENABLE_SCENES),
+                    ): bool,
+                    vol.Optional(
+                        CONF_ENABLE_DIY_SCENES,
+                        default=options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES),
                     ): bool,
                     vol.Optional(
                         CONF_ENABLE_SEGMENTS,

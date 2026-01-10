@@ -387,6 +387,59 @@ class GoveeApiClient:
         except aiohttp.ClientError as err:
             raise GoveeConnectionError(f"Connection error: {err}") from err
 
+    async def get_diy_scenes(
+        self,
+        device_id: str,
+        sku: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch available DIY scenes for a device.
+
+        Args:
+            device_id: Device identifier.
+            sku: Device SKU.
+
+        Returns:
+            List of DIY scene definitions with id, name, etc.
+        """
+        client = await self._ensure_client()
+
+        payload = {
+            "requestId": "uuid",
+            "payload": {
+                "sku": sku,
+                "device": device_id,
+            },
+        }
+
+        try:
+            async with client.post(
+                ENDPOINT_SCENES,
+                headers=self._get_headers(),
+                json=payload,
+            ) as response:
+                data = await self._handle_response(response)
+
+                scenes = []
+                capabilities = data.get("payload", {}).get("capabilities", [])
+                for cap in capabilities:
+                    if cap.get("type") == "devices.capabilities.diy_scene":
+                        params = cap.get("parameters", {})
+                        options = params.get("options", [])
+                        scenes.extend(options)
+
+                _LOGGER.debug(
+                    "Fetched %d DIY scenes for device %s",
+                    len(scenes),
+                    device_id,
+                )
+                return scenes
+
+        except GoveeDeviceNotFoundError:
+            _LOGGER.debug("No DIY scenes available for device %s", device_id)
+            return []
+        except aiohttp.ClientError as err:
+            raise GoveeConnectionError(f"Connection error: {err}") from err
+
 
 async def validate_api_key(api_key: str) -> bool:
     """Validate a Govee API key by making a test request.

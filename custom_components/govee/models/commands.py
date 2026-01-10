@@ -12,6 +12,7 @@ from typing import Any
 
 from .device import (
     CAPABILITY_COLOR_SETTING,
+    CAPABILITY_DIY_SCENE,
     CAPABILITY_DYNAMIC_SCENE,
     CAPABILITY_ON_OFF,
     CAPABILITY_RANGE,
@@ -20,6 +21,7 @@ from .device import (
     INSTANCE_BRIGHTNESS,
     INSTANCE_COLOR_RGB,
     INSTANCE_COLOR_TEMP,
+    INSTANCE_DIY,
     INSTANCE_NIGHT_LIGHT,
     INSTANCE_POWER,
     INSTANCE_SCENE,
@@ -153,6 +155,28 @@ class SceneCommand(DeviceCommand):
     @property
     def instance(self) -> str:
         return INSTANCE_SCENE
+
+    def get_value(self) -> dict[str, Any]:
+        return {
+            "id": self.scene_id,
+            "name": self.scene_name,
+        }
+
+
+@dataclass(frozen=True)
+class DIYSceneCommand(DeviceCommand):
+    """Command to activate a DIY scene."""
+
+    scene_id: int
+    scene_name: str = ""
+
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_DIY_SCENE
+
+    @property
+    def instance(self) -> str:
+        return INSTANCE_DIY
 
     def get_value(self) -> dict[str, Any]:
         return {
