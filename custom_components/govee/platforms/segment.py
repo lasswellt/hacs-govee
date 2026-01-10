@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.light import (
+from homeassistant.components.light import (  # type: ignore[attr-defined]
     ATTR_BRIGHTNESS,
     ATTR_RGB_COLOR,
     ColorMode,
@@ -17,7 +17,7 @@ from homeassistant.components.light import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 

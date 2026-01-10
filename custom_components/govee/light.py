@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.light import (
+from homeassistant.components.light import (  # type: ignore[attr-defined]
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_RGB_COLOR,
@@ -117,16 +117,17 @@ class GoveeLightEntity(GoveeEntity, LightEntity, RestoreEntity):
     def _get_current_color_mode(self) -> ColorMode:
         """Get current color mode based on state."""
         state = self.device_state
+        modes = self._attr_supported_color_modes or set()
 
         if state and state.color_temp_kelvin is not None:
-            if ColorMode.COLOR_TEMP in self._attr_supported_color_modes:
+            if ColorMode.COLOR_TEMP in modes:
                 return ColorMode.COLOR_TEMP
 
         if state and state.color is not None:
-            if ColorMode.RGB in self._attr_supported_color_modes:
+            if ColorMode.RGB in modes:
                 return ColorMode.RGB
 
-        if ColorMode.BRIGHTNESS in self._attr_supported_color_modes:
+        if ColorMode.BRIGHTNESS in modes:
             return ColorMode.BRIGHTNESS
 
         return ColorMode.ONOFF

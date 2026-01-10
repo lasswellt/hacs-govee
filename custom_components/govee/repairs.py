@@ -9,11 +9,12 @@ Provides actionable repair notifications for common issues:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.repairs import ConfirmRepairFlow, RepairsFlow
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import issue_registry as ir
 
 from .const import DOMAIN
@@ -160,18 +161,18 @@ class AuthRepairFlow(RepairsFlow):
     async def async_step_init(
         self,
         user_input: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> FlowResult:
         """Handle the initial step of the repair flow."""
         return await self.async_step_confirm()
 
     async def async_step_confirm(
         self,
         user_input: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> FlowResult:
         """Handle confirmation and redirect to reauth flow."""
         if user_input is not None:
             # Get the entry ID from the issue data
-            entry_id = self.data.get("entry_id") if self.data else None
+            entry_id = str(self.data.get("entry_id", "")) if self.data else ""
             if entry_id:
                 entry = self.hass.config_entries.async_get_entry(entry_id)
                 if entry:
@@ -179,20 +180,17 @@ class AuthRepairFlow(RepairsFlow):
                     self.hass.async_create_task(
                         self.hass.config_entries.flow.async_init(
                             DOMAIN,
-                            context={
-                                "source": "reauth",
-                                "entry_id": entry_id,
-                            },
+                            context={"source": "reauth", "entry_id": entry_id},
                             data=dict(entry.data),
                         )
                     )
                     return self.async_create_entry(data={})
 
+        entry_title = "Govee"
+        if self.data:
+            entry_title = str(self.data.get("entry_title", "Govee"))
+
         return self.async_show_form(
             step_id="confirm",
-            description_placeholders={
-                "entry_title": self.data.get("entry_title", "Govee")
-                if self.data
-                else "Govee",
-            },
+            description_placeholders={"entry_title": entry_title},
         )

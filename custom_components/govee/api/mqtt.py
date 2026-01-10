@@ -273,7 +273,7 @@ class GoveeAwsIotClient:
 
                     async for message in client.messages:
                         if not self._running:
-                            break
+                            break  # type: ignore[unreachable]
                         await self._handle_message(message)
 
             except asyncio.CancelledError:
