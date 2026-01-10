@@ -1,3 +1,9 @@
+# Runtime dependencies (from manifest.json)
+aiohttp-retry>=2.8.3
+aiomqtt>=2.0.0
+cryptography>=41.0.0
+
+# Test dependencies
 asynctest
 black
 colorlog
