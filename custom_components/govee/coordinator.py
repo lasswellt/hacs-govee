@@ -169,6 +169,14 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                     device.device_type,
                     device.is_group,
                 )
+                # Log capabilities for debugging segment issues
+                for cap in device.capabilities:
+                    _LOGGER.debug(
+                        "  Capability: type=%s instance=%s params=%s",
+                        cap.type,
+                        cap.instance,
+                        cap.parameters,
+                    )
 
                 # Filter group devices unless enabled
                 if device.is_group and not self._enable_groups:

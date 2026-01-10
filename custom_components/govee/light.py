@@ -63,6 +63,13 @@ async def async_setup_entry(
             entities.append(GoveeLightEntity(coordinator, device))
 
         # Create segment entities for RGBIC devices
+        _LOGGER.debug(
+            "Segment check for %s: enable_segments=%s, supports_segments=%s, segment_count=%d",
+            device.name,
+            enable_segments,
+            device.supports_segments,
+            device.segment_count,
+        )
         if enable_segments and device.supports_segments and device.segment_count > 0:
             _LOGGER.debug(
                 "Creating %d segment entities for %s",
