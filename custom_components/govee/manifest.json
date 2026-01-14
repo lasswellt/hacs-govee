@@ -4,11 +4,11 @@
   "codeowners": ["@lasswellt"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/lasswellt/hacs-govee/blob/master/README.md",
+  "documentation": "https://github.com/lasswellt/govee-homeassistant/blob/master/README.md",
   "homekit": {},
   "integration_type": "hub",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/lasswellt/hacs-govee/issues",
+  "issue_tracker": "https://github.com/lasswellt/govee-homeassistant/issues",
   "loggers": ["aiohttp", "aiomqtt"],
   "requirements": [
     "aiohttp-retry>=2.8.3",

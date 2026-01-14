@@ -10,12 +10,12 @@
 
 <p align="center">
   <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge" alt="HACS Custom"></a>
-  <a href="https://github.com/lasswellt/hacs-govee/releases"><img src="https://img.shields.io/github/v/release/lasswellt/hacs-govee?style=for-the-badge" alt="GitHub Release"></a>
-  <a href="https://github.com/lasswellt/hacs-govee/blob/master/LICENSE.txt"><img src="https://img.shields.io/github/license/lasswellt/hacs-govee?style=for-the-badge" alt="License"></a>
+  <a href="https://github.com/lasswellt/govee-homeassistant/releases"><img src="https://img.shields.io/github/v/release/lasswellt/govee-homeassistant?style=for-the-badge" alt="GitHub Release"></a>
+  <a href="https://github.com/lasswellt/govee-homeassistant/blob/master/LICENSE.txt"><img src="https://img.shields.io/github/license/lasswellt/govee-homeassistant?style=for-the-badge" alt="License"></a>
 </p>
 
 <p align="center">
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=lasswellt&repository=hacs-govee&category=integration">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=lasswellt&repository=govee-homeassistant&category=integration">
     <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS">
   </a>
 </p>
