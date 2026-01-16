@@ -4,11 +4,28 @@ on:
     branches:
       - master
 jobs:
+  check-branch:
+    name: Check if dependencies branch exists
+    runs-on: ubuntu-latest
+    outputs:
+      branch_exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - name: Check for dependencies branch
+        id: check
+        run: |
+          if git ls-remote --exit-code --heads https://github.com/${{ github.repository }}.git dependencies > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
   rebase:
     name: Rebase `dependencies` with `master`
+    needs: check-branch
+    if: needs.check-branch.outputs.branch_exists == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
           ref: dependencies
