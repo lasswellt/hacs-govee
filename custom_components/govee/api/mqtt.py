@@ -404,15 +404,15 @@ class GoveeAwsIotClient:
             }
         }
 
-        # Build device-specific topic for commands
-        # Format: GD/{device_id} for device commands (vs GA/{account} for account-level)
-        device_topic = f"GD/{device_id}"
+        # Publish to account topic - same topic we subscribe to
+        # Device targeting is done via payload (device_id, sku fields)
+        # Note: Device-specific topics require fetching from undocumented API
+        topic = self._credentials.account_topic
 
         try:
-            await self._client.publish(device_topic, json.dumps(payload))
+            await self._client.publish(topic, json.dumps(payload))
             _LOGGER.debug(
-                "Published ptReal to %s for device %s (sku=%s)",
-                device_topic,
+                "Published ptReal to account topic for device %s (sku=%s)",
                 device_id,
                 sku,
             )
