@@ -84,6 +84,9 @@ class GoveeDeviceState:
     color_temp_kelvin: int | None = None
     active_scene: str | None = None
     segments: list[SegmentState] = field(default_factory=list)
+    diy_speed: int | None = None  # DIY scene playback speed 0-100
+    diy_style: str | None = None  # DIY animation style (Fade, Jumping, etc.)
+    music_mode_enabled: bool | None = None  # Music mode on/off state
 
     # Source tracking for state management
     # "api" = from REST poll, "mqtt" = from push, "optimistic" = from command
@@ -180,6 +183,16 @@ class GoveeDeviceState:
     def apply_optimistic_scene(self, scene_id: str) -> None:
         """Apply optimistic scene activation."""
         self.active_scene = scene_id
+        self.source = "optimistic"
+
+    def apply_optimistic_diy_style(self, style: str) -> None:
+        """Apply optimistic DIY style update."""
+        self.diy_style = style
+        self.source = "optimistic"
+
+    def apply_optimistic_music_mode(self, enabled: bool) -> None:
+        """Apply optimistic music mode update."""
+        self.music_mode_enabled = enabled
         self.source = "optimistic"
 
     @classmethod

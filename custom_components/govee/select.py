@@ -16,6 +16,7 @@ from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .api.ble_packet import DIY_STYLE_NAMES
 from .const import (
     CONF_ENABLE_DIY_SCENES,
     CONF_ENABLE_SCENES,
@@ -25,6 +26,9 @@ from .const import (
 )
 from .coordinator import GoveeCoordinator
 from .models import DIYSceneCommand, GoveeDevice, SceneCommand
+
+# DIY Style options for select entity
+DIY_STYLE_OPTIONS = list(DIY_STYLE_NAMES.keys())
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +91,17 @@ async def async_setup_entry(
                     )
                 )
                 _LOGGER.debug("Created DIY scene select entity for %s", device.name)
+
+            # DIY style selector (only if device supports DIY scenes)
+            # Requires MQTT for BLE passthrough
+            if coordinator.mqtt_connected:
+                entities.append(
+                    GoveeDIYStyleSelectEntity(
+                        coordinator=coordinator,
+                        device=device,
+                    )
+                )
+                _LOGGER.debug("Created DIY style select entity for %s", device.name)
 
     async_add_entities(entities)
     _LOGGER.debug("Set up %d Govee scene select entities", len(entities))
@@ -319,5 +334,105 @@ class GoveeDIYSceneSelectEntity(CoordinatorEntity["GoveeCoordinator"], SelectEnt
             _LOGGER.warning(
                 "Failed to activate DIY scene '%s' on %s",
                 scene_name,
+                self._device.name,
+            )
+
+
+class GoveeDIYStyleSelectEntity(CoordinatorEntity["GoveeCoordinator"], SelectEntity):
+    """Govee DIY style select entity.
+
+    Provides a dropdown to select the animation style for DIY scenes.
+    Requires MQTT connection for BLE passthrough commands.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "govee_diy_style_select"
+    _attr_icon = "mdi:animation-play"
+
+    def __init__(
+        self,
+        coordinator: GoveeCoordinator,
+        device: GoveeDevice,
+    ) -> None:
+        """Initialize the DIY style select entity.
+
+        Args:
+            coordinator: Govee data coordinator.
+            device: Device this select belongs to.
+        """
+        super().__init__(coordinator)
+
+        self._device = device
+        self._device_id = device.device_id
+
+        # Available style options
+        self._attr_options = DIY_STYLE_OPTIONS
+        self._attr_current_option = DIY_STYLE_OPTIONS[0]  # Default to Fade
+
+        # Unique ID
+        self._attr_unique_id = f"{device.device_id}_diy_style_select"
+
+        # Entity name
+        self._attr_name = "DIY Style"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._device.device_id)},
+            name=self._device.name,
+            manufacturer="Govee",
+            model=self._device.sku,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available.
+
+        Requires MQTT connection for BLE passthrough.
+        """
+        if not self.coordinator.mqtt_connected:
+            return False
+        state = self.coordinator.get_state(self._device_id)
+        if state is None:
+            return False
+        return state.online or self._device.is_group
+
+    @property
+    def current_option(self) -> str | None:
+        """Return current selected option from state."""
+        state = self.coordinator.get_state(self._device_id)
+        if state and state.diy_style:
+            return state.diy_style
+        return self._attr_current_option
+
+    async def async_select_option(self, option: str) -> None:
+        """Handle style selection."""
+        if option not in DIY_STYLE_OPTIONS:
+            _LOGGER.warning("Unknown DIY style option: %s", option)
+            return
+
+        # Get current speed from state, default to 50
+        state = self.coordinator.get_state(self._device_id)
+        speed = state.diy_speed if state and state.diy_speed is not None else 50
+
+        success = await self.coordinator.async_send_diy_style(
+            self._device_id,
+            option,
+            speed,
+        )
+
+        if success:
+            self._attr_current_option = option
+            self.async_write_ha_state()
+            _LOGGER.debug(
+                "Set DIY style '%s' on %s",
+                option,
+                self._device.name,
+            )
+        else:
+            _LOGGER.warning(
+                "Failed to set DIY style '%s' on %s",
+                option,
                 self._device.name,
             )

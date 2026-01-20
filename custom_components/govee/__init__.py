@@ -41,6 +41,7 @@ _LOGGER = logging.getLogger(__name__)
 # Order determines entity display order in device view
 PLATFORMS: list[Platform] = [
     Platform.SELECT,  # Scene dropdowns - show first
+    Platform.NUMBER,  # DIY speed controls
     Platform.LIGHT,  # Main light + segments
     Platform.SWITCH,
     Platform.SENSOR,
@@ -241,8 +242,10 @@ async def _async_cleanup_orphaned_entities(
     entity_suffixes = (
         "_scene_select",
         "_diy_scene_select",
+        "_diy_style_select",
         "_refresh_scenes",
         "_night_light",
+        "_music_mode",
     )
 
     # Get all entity entries for this config entry

@@ -153,3 +153,6 @@ logs/
 # Local/temporary documentation (keep govee-protocol-reference.md)
 docs/epic-*.md
 docs/legacy-*.md
+
+# GitHub profile README (not part of this project)
+profile-README.md

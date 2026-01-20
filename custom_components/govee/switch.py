@@ -41,6 +41,12 @@ async def async_setup_entry(
         if device.supports_night_light:
             entities.append(GoveeNightLightSwitchEntity(coordinator, device))
 
+        # Create switch for music mode toggle (devices with music mode support)
+        # Requires MQTT connection for BLE passthrough
+        if device.supports_music_mode and coordinator.mqtt_connected:
+            entities.append(GoveeMusicModeSwitchEntity(coordinator, device))
+            _LOGGER.debug("Created music mode switch entity for %s", device.name)
+
     async_add_entities(entities)
     _LOGGER.debug("Set up %d Govee switch entities", len(entities))
 
@@ -132,6 +138,73 @@ class GoveeNightLightSwitchEntity(GoveeEntity, SwitchEntity):
         success = await self.coordinator.async_control_device(
             self._device_id,
             create_night_light_command(enabled=False),
+        )
+        if success:
+            self._is_on = False
+            self.async_write_ha_state()
+
+
+class GoveeMusicModeSwitchEntity(GoveeEntity, SwitchEntity):
+    """Govee music mode toggle switch entity.
+
+    Controls music reactive mode for devices that support it.
+    Uses BLE passthrough via MQTT - requires MQTT connection.
+    Uses optimistic state since API may not return music mode status.
+    """
+
+    _attr_translation_key = "govee_music_mode"
+    _attr_icon = "mdi:music"
+
+    def __init__(
+        self,
+        coordinator: GoveeCoordinator,
+        device: GoveeDevice,
+    ) -> None:
+        """Initialize the music mode switch entity."""
+        super().__init__(coordinator, device)
+
+        # Unique ID for music mode switch
+        self._attr_unique_id = f"{device.device_id}_music_mode"
+
+        # Name as "Music Mode"
+        self._attr_name = "Music Mode"
+
+        # Optimistic state
+        self._is_on = False
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available.
+
+        Requires MQTT connection for BLE passthrough.
+        """
+        if not self.coordinator.mqtt_connected:
+            return False
+        return super().available
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if music mode is on."""
+        state = self.device_state
+        if state and state.music_mode_enabled is not None:
+            return state.music_mode_enabled
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn music mode on."""
+        success = await self.coordinator.async_send_music_mode(
+            self._device_id,
+            enabled=True,
+        )
+        if success:
+            self._is_on = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn music mode off."""
+        success = await self.coordinator.async_send_music_mode(
+            self._device_id,
+            enabled=False,
         )
         if success:
             self._is_on = False

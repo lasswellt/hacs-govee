@@ -1,0 +1,194 @@
+"""Number platform for Govee integration.
+
+Provides number entities for device controls that use numeric values,
+such as DIY scene playback speed.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import (
+    CONF_ENABLE_DIY_SCENES,
+    DEFAULT_ENABLE_DIY_SCENES,
+    DOMAIN,
+)
+from .coordinator import GoveeCoordinator
+from .models import GoveeDevice
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Govee number entities from a config entry."""
+    coordinator: GoveeCoordinator = entry.runtime_data
+
+    entities: list[NumberEntity] = []
+
+    # Check if DIY scenes are enabled
+    enable_diy_scenes = entry.options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES)
+
+    _LOGGER.debug(
+        "Number entity setup: enable_diy_scenes=%s mqtt_connected=%s",
+        enable_diy_scenes,
+        coordinator.mqtt_connected,
+    )
+
+    # DIY speed control requires MQTT for BLE passthrough
+    if not coordinator.mqtt_connected:
+        _LOGGER.debug("Skipping DIY speed entities: MQTT not connected")
+        async_add_entities([])
+        return
+
+    for device in coordinator.devices.values():
+        _LOGGER.debug(
+            "Device %s: supports_diy_scenes=%s",
+            device.name,
+            device.supports_diy_scenes,
+        )
+
+        # DIY speed control for devices with DIY scene support
+        if enable_diy_scenes and device.supports_diy_scenes:
+            diy_scenes = await coordinator.async_get_diy_scenes(device.device_id)
+            if diy_scenes:
+                entities.append(
+                    GoveeDIYSpeedNumber(
+                        coordinator=coordinator,
+                        device=device,
+                    )
+                )
+                _LOGGER.debug("Created DIY speed number entity for %s", device.name)
+
+    async_add_entities(entities)
+    _LOGGER.debug("Set up %d Govee number entities", len(entities))
+
+
+class GoveeDIYSpeedNumber(
+    CoordinatorEntity["GoveeCoordinator"],
+    RestoreEntity,
+    NumberEntity,
+):
+    """Govee DIY scene speed control entity.
+
+    Controls the playback speed of DIY scenes (0-100).
+    0 = static (no animation), 100 = fastest playback.
+
+    Uses RestoreEntity to persist speed across Home Assistant restarts
+    since the API doesn't return the current speed value.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "govee_diy_speed"
+    _attr_icon = "mdi:speedometer"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
+
+    def __init__(
+        self,
+        coordinator: GoveeCoordinator,
+        device: GoveeDevice,
+    ) -> None:
+        """Initialize the DIY speed number entity.
+
+        Args:
+            coordinator: Govee data coordinator.
+            device: Device this entity controls.
+        """
+        super().__init__(coordinator)
+
+        self._device = device
+        self._device_id = device.device_id
+        self._attr_native_value: float | None = 50  # Default to mid-speed
+
+        # Unique ID
+        self._attr_unique_id = f"{device.device_id}_diy_speed"
+
+        # Entity name
+        self._attr_name = "DIY Scene Speed"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._device.device_id)},
+            name=self._device.name,
+            manufacturer="Govee",
+            model=self._device.sku,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available.
+
+        Requires MQTT connection for BLE passthrough.
+        """
+        if not self.coordinator.mqtt_connected:
+            return False
+
+        state = self.coordinator.get_state(self._device_id)
+        if state is None:
+            return False
+        return state.online or self._device.is_group
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state when entity is added to Home Assistant."""
+        await super().async_added_to_hass()
+
+        # Restore previous state
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state not in (None, "unknown", "unavailable"):
+                try:
+                    self._attr_native_value = float(last_state.state)
+                    _LOGGER.debug(
+                        "Restored DIY speed for %s: %s",
+                        self._device.name,
+                        self._attr_native_value,
+                    )
+                except ValueError:
+                    _LOGGER.warning(
+                        "Could not restore DIY speed for %s: invalid state '%s'",
+                        self._device.name,
+                        last_state.state,
+                    )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the DIY scene speed.
+
+        Args:
+            value: Speed value 0-100.
+        """
+        speed = int(value)
+
+        success = await self.coordinator.async_send_diy_speed(
+            self._device_id,
+            speed,
+        )
+
+        if success:
+            self._attr_native_value = float(speed)
+            self.async_write_ha_state()
+            _LOGGER.debug(
+                "Set DIY speed to %d on %s",
+                speed,
+                self._device.name,
+            )
+        else:
+            _LOGGER.warning(
+                "Failed to set DIY speed to %d on %s",
+                speed,
+                self._device.name,
+            )

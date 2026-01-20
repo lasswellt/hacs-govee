@@ -117,6 +117,11 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         return self._devices
 
     @property
+    def mqtt_connected(self) -> bool:
+        """Return True if MQTT client is connected."""
+        return self._mqtt_client is not None and self._mqtt_client.connected
+
+    @property
     def states(self) -> dict[str, GoveeDeviceState]:
         """Get current states for all devices."""
         return self._states
@@ -449,6 +454,158 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         except GoveeApiError as err:
             _LOGGER.error("Control command failed: %s", err)
             return False
+
+    async def async_send_diy_speed(self, device_id: str, speed: int) -> bool:
+        """Send DIY scene speed via BLE passthrough.
+
+        Sends a ptReal MQTT command to adjust DIY scene playback speed.
+        This feature requires MQTT connection as there is no REST API fallback.
+
+        Args:
+            device_id: Device identifier.
+            speed: Playback speed 0-100 (0 = static, 100 = fastest).
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if not self.mqtt_connected:
+            _LOGGER.warning(
+                "Cannot send DIY speed for %s: MQTT not connected",
+                device_id,
+            )
+            return False
+
+        device = self._devices.get(device_id)
+        if not device:
+            _LOGGER.error("Unknown device for DIY speed: %s", device_id)
+            return False
+
+        # Build and send BLE packet
+        from .api.ble_packet import build_diy_speed_packet, encode_packet_base64
+
+        packet = build_diy_speed_packet(speed)
+        encoded = encode_packet_base64(packet)
+
+        success = await self._mqtt_client.async_publish_ptreal(
+            device_id,
+            device.sku,
+            encoded,
+        )
+
+        if success:
+            # Apply optimistic update to state
+            state = self._states.get(device_id)
+            if state:
+                state.diy_speed = speed
+                state.source = "optimistic"
+            _LOGGER.debug("Sent DIY speed %d to %s", speed, device.name)
+
+        return success
+
+    async def async_send_diy_style(self, device_id: str, style: str, speed: int = 50) -> bool:
+        """Send DIY animation style via BLE passthrough.
+
+        Sends a ptReal MQTT command to set the DIY scene animation style.
+        This feature requires MQTT connection as there is no REST API fallback.
+
+        Args:
+            device_id: Device identifier.
+            style: Animation style name (Fade, Jumping, Flicker, Marquee, Music).
+            speed: Playback speed 0-100 (default 50).
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if not self.mqtt_connected:
+            _LOGGER.warning(
+                "Cannot send DIY style for %s: MQTT not connected",
+                device_id,
+            )
+            return False
+
+        device = self._devices.get(device_id)
+        if not device:
+            _LOGGER.error("Unknown device for DIY style: %s", device_id)
+            return False
+
+        # Build and send BLE packet
+        from .api.ble_packet import DIY_STYLE_NAMES, build_diy_style_packet, encode_packet_base64
+
+        style_value = DIY_STYLE_NAMES.get(style)
+        if style_value is None:
+            _LOGGER.error("Unknown DIY style: %s", style)
+            return False
+
+        packet = build_diy_style_packet(style_value, speed)
+        encoded = encode_packet_base64(packet)
+
+        success = await self._mqtt_client.async_publish_ptreal(
+            device_id,
+            device.sku,
+            encoded,
+        )
+
+        if success:
+            # Apply optimistic update to state
+            state = self._states.get(device_id)
+            if state:
+                state.apply_optimistic_diy_style(style)
+                state.diy_speed = speed
+            _LOGGER.debug("Sent DIY style '%s' (speed=%d) to %s", style, speed, device.name)
+
+        return success
+
+    async def async_send_music_mode(self, device_id: str, enabled: bool, sensitivity: int = 50) -> bool:
+        """Send music mode command via BLE passthrough.
+
+        Sends a ptReal MQTT command to enable/disable music reactive mode.
+        This feature requires MQTT connection as there is no REST API fallback.
+
+        Args:
+            device_id: Device identifier.
+            enabled: True to enable music mode, False to disable.
+            sensitivity: Microphone sensitivity 0-100 (default 50).
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if not self.mqtt_connected:
+            _LOGGER.warning(
+                "Cannot send music mode for %s: MQTT not connected",
+                device_id,
+            )
+            return False
+
+        device = self._devices.get(device_id)
+        if not device:
+            _LOGGER.error("Unknown device for music mode: %s", device_id)
+            return False
+
+        # Build and send BLE packet
+        from .api.ble_packet import build_music_mode_packet, encode_packet_base64
+
+        packet = build_music_mode_packet(enabled, sensitivity)
+        encoded = encode_packet_base64(packet)
+
+        success = await self._mqtt_client.async_publish_ptreal(
+            device_id,
+            device.sku,
+            encoded,
+        )
+
+        if success:
+            # Apply optimistic update to state
+            state = self._states.get(device_id)
+            if state:
+                state.apply_optimistic_music_mode(enabled)
+            _LOGGER.debug(
+                "Sent music mode %s (sensitivity=%d) to %s",
+                "ON" if enabled else "OFF",
+                sensitivity,
+                device.name,
+            )
+
+        return success
 
     def _apply_optimistic_update(
         self,

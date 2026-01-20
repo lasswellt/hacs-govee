@@ -19,6 +19,7 @@ import json
 import logging
 import ssl
 import tempfile
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -106,6 +107,7 @@ class GoveeAwsIotClient:
         self._task: asyncio.Task[None] | None = None
         self._temp_dir: tempfile.TemporaryDirectory[str] | None = None
         self._max_backoff_count = 0
+        self._client: Any | None = None  # aiomqtt.Client when connected
 
     @property
     def connected(self) -> bool:
@@ -164,6 +166,7 @@ class GoveeAwsIotClient:
             except Exception:
                 pass
 
+        self._client = None
         self._connected = False
         _LOGGER.info("AWS IoT MQTT client stopped")
 
@@ -257,6 +260,7 @@ class GoveeAwsIotClient:
                     keepalive=AWS_IOT_KEEPALIVE,
                     timeout=CONNECTION_TIMEOUT,
                 ) as client:
+                    self._client = client
                     self._connected = True
                     self._max_backoff_count = 0
                     reconnect_interval = RECONNECT_BASE
@@ -276,11 +280,14 @@ class GoveeAwsIotClient:
                             break  # type: ignore[unreachable]
                         await self._handle_message(message)
 
+                    self._client = None
+
             except asyncio.CancelledError:
                 _LOGGER.debug("AWS IoT connection loop cancelled")
                 raise
 
             except Exception as err:
+                self._client = None
                 self._connected = False
 
                 if self._running:
@@ -346,3 +353,55 @@ class GoveeAwsIotClient:
             _LOGGER.warning("Failed to parse AWS IoT message: %s", err)
         except Exception as err:
             _LOGGER.error("Error handling AWS IoT message: %s", err)
+
+    async def async_publish_ptreal(
+        self,
+        device_id: str,
+        sku: str,
+        ble_packet_base64: str,
+    ) -> bool:
+        """Publish BLE passthrough command via MQTT.
+
+        Sends a ptReal command to the device to execute a BLE packet.
+        This allows controlling device features not exposed via REST API.
+
+        Args:
+            device_id: Target device identifier.
+            sku: Device SKU/model.
+            ble_packet_base64: Base64-encoded BLE packet.
+
+        Returns:
+            True if publish succeeded, False otherwise.
+        """
+        if not self._connected or self._client is None:
+            _LOGGER.warning("Cannot publish ptReal: MQTT not connected")
+            return False
+
+        # Build ptReal payload
+        payload = {
+            "msg": {
+                "cmd": "ptReal",
+                "data": {
+                    "command": [ble_packet_base64],
+                },
+                "cmdVersion": 0,
+                "transaction": f"v_{int(time.time() * 1000)}",
+                "type": 1,
+            }
+        }
+
+        # Publish to account topic (same as subscription topic)
+        topic = self._credentials.account_topic
+
+        try:
+            await self._client.publish(topic, json.dumps(payload))
+            _LOGGER.debug(
+                "Published ptReal to %s for device %s (sku=%s)",
+                topic[:30] + "...",
+                device_id,
+                sku,
+            )
+            return True
+        except Exception as err:
+            _LOGGER.error("Failed to publish ptReal: %s", err)
+            return False

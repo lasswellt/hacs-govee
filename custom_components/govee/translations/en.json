@@ -72,12 +72,20 @@
         "name": "{device_name} Segment {segment_index}"
       }
     },
+    "number": {
+      "govee_diy_speed": {
+        "name": "DIY Scene Speed"
+      }
+    },
     "select": {
       "govee_scene_select": {
         "name": "Scene"
       },
       "govee_diy_scene_select": {
         "name": "DIY Scene"
+      },
+      "govee_diy_style_select": {
+        "name": "DIY Style"
       }
     },
     "switch": {
@@ -86,6 +94,9 @@
       },
       "govee_night_light": {
         "name": "Night Light"
+      },
+      "govee_music_mode": {
+        "name": "Music Mode"
       }
     },
     "sensor": {

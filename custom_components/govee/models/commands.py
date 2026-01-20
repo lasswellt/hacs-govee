@@ -12,7 +12,6 @@ from typing import Any
 
 from .device import (
     CAPABILITY_COLOR_SETTING,
-    CAPABILITY_DIY_SCENE,
     CAPABILITY_DYNAMIC_SCENE,
     CAPABILITY_ON_OFF,
     CAPABILITY_RANGE,
@@ -172,17 +171,14 @@ class DIYSceneCommand(DeviceCommand):
 
     @property
     def capability_type(self) -> str:
-        return CAPABILITY_DIY_SCENE
+        return CAPABILITY_DYNAMIC_SCENE
 
     @property
     def instance(self) -> str:
         return INSTANCE_DIY
 
-    def get_value(self) -> dict[str, Any]:
-        return {
-            "id": self.scene_id,
-            "name": self.scene_name,
-        }
+    def get_value(self) -> int:
+        return self.scene_id
 
 
 @dataclass(frozen=True)

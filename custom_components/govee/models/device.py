@@ -17,7 +17,6 @@ CAPABILITY_RANGE = "devices.capabilities.range"
 CAPABILITY_COLOR_SETTING = "devices.capabilities.color_setting"
 CAPABILITY_SEGMENT_COLOR = "devices.capabilities.segment_color_setting"
 CAPABILITY_DYNAMIC_SCENE = "devices.capabilities.dynamic_scene"
-CAPABILITY_DIY_SCENE = "devices.capabilities.diy_scene"
 CAPABILITY_MUSIC_MODE = "devices.capabilities.music_setting"
 CAPABILITY_TOGGLE = "devices.capabilities.toggle"
 CAPABILITY_WORK_MODE = "devices.capabilities.work_mode"
@@ -248,6 +247,16 @@ class GoveeDevice:
     def supports_night_light(self) -> bool:
         """Check if device supports night light toggle."""
         return any(cap.is_night_light for cap in self.capabilities)
+
+    @property
+    def supports_music_mode(self) -> bool:
+        """Check if device supports music mode.
+
+        Music mode is available on devices with either:
+        - Music setting capability (devices.capabilities.music_setting)
+        - DIY scene support (which includes music reactive options)
+        """
+        return any(cap.type == CAPABILITY_MUSIC_MODE for cap in self.capabilities) or self.supports_diy_scenes
 
     @property
     def is_plug(self) -> bool:
