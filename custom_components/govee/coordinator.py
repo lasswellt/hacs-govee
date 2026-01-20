@@ -25,6 +25,7 @@ from .api import (
     GoveeIotCredentials,
     GoveeRateLimitError,
 )
+from .api.auth import GoveeAuthClient
 from .const import DOMAIN
 from .models import GoveeDevice, GoveeDeviceState
 from .protocols import IStateObserver
@@ -108,6 +109,10 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         # MQTT client for real-time updates
         self._mqtt_client: GoveeAwsIotClient | None = None
 
+        # Device-specific MQTT topics from undocumented API
+        # Maps device_id -> MQTT topic for publishing commands
+        self._device_topics: dict[str, str] = {}
+
         # Track rate limit state to avoid spamming repair issues
         self._rate_limited: bool = False
 
@@ -163,6 +168,8 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         # Start MQTT client if credentials available
         if self._iot_credentials:
             await self._start_mqtt()
+            # Fetch device-specific MQTT topics for publishing commands
+            await self._fetch_device_topics()
 
     async def _discover_devices(self) -> None:
         """Discover all devices from Govee API."""
@@ -271,6 +278,32 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                 )
         else:
             _LOGGER.warning("MQTT library not available")
+
+    async def _fetch_device_topics(self) -> None:
+        """Fetch device-specific MQTT topics from undocumented Govee API.
+
+        These topics are required for publishing commands (ptReal, etc).
+        Device targeting via payload alone doesn't work - AWS IoT requires
+        publishing to the device's specific topic.
+        """
+        if not self._iot_credentials:
+            return
+
+        try:
+            async with GoveeAuthClient() as auth_client:
+                self._device_topics = await auth_client.fetch_device_topics(
+                    self._iot_credentials.token
+                )
+                _LOGGER.info(
+                    "Fetched MQTT topics for %d devices",
+                    len(self._device_topics),
+                )
+        except GoveeApiError as err:
+            _LOGGER.warning("Failed to fetch device topics: %s", err)
+            # Continue without device topics - ptReal commands won't work
+            # but the integration can still function with polling
+        except Exception as err:
+            _LOGGER.warning("Unexpected error fetching device topics: %s", err)
 
     def _on_mqtt_state_update(self, device_id: str, state_data: dict[str, Any]) -> None:
         """Handle state update from MQTT.
@@ -486,10 +519,14 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         packet = build_diy_speed_packet(speed)
         encoded = encode_packet_base64(packet)
 
+        # Get device-specific MQTT topic for publishing
+        device_topic = self._device_topics.get(device_id)
+
         success = await self._mqtt_client.async_publish_ptreal(
             device_id,
             device.sku,
             encoded,
+            device_topic,
         )
 
         if success:
@@ -539,10 +576,14 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         packet = build_diy_style_packet(style_value, speed)
         encoded = encode_packet_base64(packet)
 
+        # Get device-specific MQTT topic for publishing
+        device_topic = self._device_topics.get(device_id)
+
         success = await self._mqtt_client.async_publish_ptreal(
             device_id,
             device.sku,
             encoded,
+            device_topic,
         )
 
         if success:
@@ -587,10 +628,14 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         packet = build_music_mode_packet(enabled, sensitivity)
         encoded = encode_packet_base64(packet)
 
+        # Get device-specific MQTT topic for publishing
+        device_topic = self._device_topics.get(device_id)
+
         success = await self._mqtt_client.async_publish_ptreal(
             device_id,
             device.sku,
             encoded,
+            device_topic,
         )
 
         if success:

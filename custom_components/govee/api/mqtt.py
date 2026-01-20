@@ -371,6 +371,7 @@ class GoveeAwsIotClient:
         device_id: str,
         sku: str,
         ble_packet_base64: str,
+        device_topic: str | None = None,
     ) -> bool:
         """Publish BLE passthrough command via MQTT.
 
@@ -381,12 +382,22 @@ class GoveeAwsIotClient:
             device_id: Target device identifier.
             sku: Device SKU/model.
             ble_packet_base64: Base64-encoded BLE packet.
+            device_topic: Device-specific MQTT topic for publishing commands.
+                          Required for AWS IoT - obtained from undocumented API.
 
         Returns:
             True if publish succeeded, False otherwise.
         """
         if not self._connected or self._client is None:
             _LOGGER.warning("Cannot publish ptReal: MQTT not connected")
+            return False
+
+        if not device_topic:
+            _LOGGER.warning(
+                "Cannot publish ptReal for %s: No device topic available. "
+                "Device topics must be fetched from Govee undocumented API.",
+                device_id,
+            )
             return False
 
         # Build ptReal payload with device targeting
@@ -404,15 +415,11 @@ class GoveeAwsIotClient:
             }
         }
 
-        # Publish to account topic - same topic we subscribe to
-        # Device targeting is done via payload (device_id, sku fields)
-        # Note: Device-specific topics require fetching from undocumented API
-        topic = self._credentials.account_topic
-
         try:
-            await self._client.publish(topic, json.dumps(payload))
+            await self._client.publish(device_topic, json.dumps(payload))
             _LOGGER.debug(
-                "Published ptReal to account topic for device %s (sku=%s)",
+                "Published ptReal to %s for device %s (sku=%s)",
+                device_topic[:30] + "...",
                 device_id,
                 sku,
             )

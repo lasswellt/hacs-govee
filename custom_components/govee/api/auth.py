@@ -29,6 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 # Govee Account API endpoints
 GOVEE_LOGIN_URL = "https://app2.govee.com/account/rest/account/v1/login"
 GOVEE_IOT_KEY_URL = "https://app2.govee.com/app/v1/account/iot/key"
+GOVEE_DEVICE_LIST_URL = "https://app2.govee.com/device/rest/devices/v1/list"
 GOVEE_CLIENT_TYPE = "1"  # Android client type
 
 
@@ -199,6 +200,82 @@ class GoveeAuthClient:
 
         except aiohttp.ClientError as err:
             raise GoveeApiError(f"Connection error getting IoT key: {err}") from err
+
+    async def fetch_device_topics(self, token: str) -> dict[str, str]:
+        """Fetch device-specific MQTT topics from undocumented Govee API.
+
+        This API returns device_ext.device_settings.topic for each device,
+        which is required for publishing MQTT commands (ptReal, etc).
+
+        Args:
+            token: Authentication token from login response.
+
+        Returns:
+            Dict mapping device_id to MQTT topic.
+
+        Raises:
+            GoveeApiError: If the request fails.
+        """
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            self._owns_session = True
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        try:
+            async with self._session.post(
+                GOVEE_DEVICE_LIST_URL,
+                headers=headers,
+                json={},  # Empty body required for POST
+            ) as response:
+                data = await response.json()
+
+                if response.status != 200:
+                    message = data.get("message", f"HTTP {response.status}")
+                    raise GoveeApiError(f"Failed to get device list: {message}", code=response.status)
+
+                # Extract device topics from response
+                # Structure: devices[].device_ext.device_settings.topic
+                device_topics: dict[str, str] = {}
+                devices = data.get("devices", [])
+
+                for device in devices:
+                    device_id = device.get("device")
+                    if not device_id:
+                        continue
+
+                    # device_ext may be a JSON string that needs parsing
+                    device_ext = device.get("deviceExt", {})
+                    if isinstance(device_ext, str):
+                        try:
+                            import json
+                            device_ext = json.loads(device_ext)
+                        except (json.JSONDecodeError, TypeError):
+                            device_ext = {}
+
+                    # device_settings may also be a JSON string
+                    device_settings = device_ext.get("deviceSettings", {})
+                    if isinstance(device_settings, str):
+                        try:
+                            import json
+                            device_settings = json.loads(device_settings)
+                        except (json.JSONDecodeError, TypeError):
+                            device_settings = {}
+
+                    topic = device_settings.get("topic")
+                    if topic:
+                        device_topics[device_id] = topic
+                        _LOGGER.debug("Device %s has MQTT topic: %s...", device_id, topic[:30])
+
+                _LOGGER.info("Fetched MQTT topics for %d devices", len(device_topics))
+                return device_topics
+
+        except aiohttp.ClientError as err:
+            raise GoveeApiError(f"Connection error fetching device topics: {err}") from err
 
     async def login(
         self,
