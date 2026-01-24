@@ -25,7 +25,13 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import GoveeCoordinator
-from .models import DIYSceneCommand, GoveeDevice, ModeCommand, MusicModeCommand, SceneCommand
+from .models import (
+    DIYSceneCommand,
+    GoveeDevice,
+    ModeCommand,
+    MusicModeCommand,
+    SceneCommand,
+)
 from .models.device import INSTANCE_HDMI_SOURCE
 
 # DIY Style options for select entity
@@ -49,7 +55,9 @@ async def async_setup_entry(
 
     # Check if scenes are enabled
     enable_scenes = entry.options.get(CONF_ENABLE_SCENES, DEFAULT_ENABLE_SCENES)
-    enable_diy_scenes = entry.options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES)
+    enable_diy_scenes = entry.options.get(
+        CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES
+    )
 
     _LOGGER.debug(
         "Scene entity setup: enable_scenes=%s enable_diy_scenes=%s",
@@ -523,9 +531,8 @@ class GoveeDIYStyleSelectEntity(CoordinatorEntity["GoveeCoordinator"], SelectEnt
             _LOGGER.warning("Unknown DIY style option: %s", option)
             return
 
-        # Get current speed from state, default to 50
-        state = self.coordinator.get_state(self._device_id)
-        speed = state.diy_speed if state and state.diy_speed is not None else 50
+        # Use default speed of 50 for DIY style animations
+        speed = 50
 
         success = await self.coordinator.async_send_diy_style(
             self._device_id,

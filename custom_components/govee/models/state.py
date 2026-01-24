@@ -242,7 +242,9 @@ class GoveeDeviceState:
         self.music_mode_name = None
         self.active_scene = None
 
-    def apply_optimistic_diy_style(self, style: str, style_value: int | None = None) -> None:
+    def apply_optimistic_diy_style(
+        self, style: str, style_value: int | None = None
+    ) -> None:
         """Apply optimistic DIY style update.
 
         Args:

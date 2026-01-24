@@ -91,8 +91,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeConfigEntry) -> boo
             hass.data[DOMAIN] = {}
 
         # Check for cached credentials or previous login failure
-        cached_creds = hass.data[DOMAIN].get(_KEY_IOT_CREDENTIALS, {}).get(entry.entry_id)
-        login_failed = hass.data[DOMAIN].get(_KEY_IOT_LOGIN_FAILED, {}).get(entry.entry_id)
+        cached_creds = (
+            hass.data[DOMAIN].get(_KEY_IOT_CREDENTIALS, {}).get(entry.entry_id)
+        )
+        login_failed = (
+            hass.data[DOMAIN].get(_KEY_IOT_LOGIN_FAILED, {}).get(entry.entry_id)
+        )
 
         if cached_creds:
             # Reuse cached credentials
@@ -115,7 +119,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeConfigEntry) -> boo
                     # Cache successful credentials
                     if _KEY_IOT_CREDENTIALS not in hass.data[DOMAIN]:
                         hass.data[DOMAIN][_KEY_IOT_CREDENTIALS] = {}
-                    hass.data[DOMAIN][_KEY_IOT_CREDENTIALS][entry.entry_id] = iot_credentials
+                    hass.data[DOMAIN][_KEY_IOT_CREDENTIALS][
+                        entry.entry_id
+                    ] = iot_credentials
 
             except GoveeAuthError as err:
                 _LOGGER.warning("Failed to get MQTT credentials: %s", err)
@@ -251,7 +257,9 @@ async def _async_cleanup_orphaned_entities(
     )
 
     # Get all entity entries for this config entry
-    all_entities = list(er.async_entries_for_config_entry(entity_registry, entry.entry_id))
+    all_entities = list(
+        er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    )
     _LOGGER.debug(
         "Checking %d entities for cleanup (coordinator has %d devices)",
         len(all_entities),
@@ -343,7 +351,9 @@ async def _async_cleanup_orphaned_entities(
 
         # Remove from state machine first (if exists)
         if hass.states.get(entity_entry.entity_id):
-            _LOGGER.debug("Removing entity from state machine: %s", entity_entry.entity_id)
+            _LOGGER.debug(
+                "Removing entity from state machine: %s", entity_entry.entity_id
+            )
             hass.states.async_remove(entity_entry.entity_id)
 
         # Remove from entity registry
@@ -400,7 +410,9 @@ async def _async_update_listener(
     # Log specific option changes for debugging
     enable_groups = entry.options.get(CONF_ENABLE_GROUPS, DEFAULT_ENABLE_GROUPS)
     enable_scenes = entry.options.get(CONF_ENABLE_SCENES, DEFAULT_ENABLE_SCENES)
-    enable_diy_scenes = entry.options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES)
+    enable_diy_scenes = entry.options.get(
+        CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES
+    )
     enable_segments = entry.options.get(CONF_ENABLE_SEGMENTS, DEFAULT_ENABLE_SEGMENTS)
     poll_interval = entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
 

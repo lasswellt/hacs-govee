@@ -27,20 +27,30 @@ from .exceptions import GoveeApiError, GoveeAuthError
 _LOGGER = logging.getLogger(__name__)
 
 # Fields that should be redacted in debug logs (contain credentials/secrets)
-_SENSITIVE_FIELDS = frozenset({
-    "token", "refreshToken", "password", "p12", "p12Pass", "p12_pass",
-    "privateKey", "certificatePem", "caCertificate",
-})
+_SENSITIVE_FIELDS = frozenset(
+    {
+        "token",
+        "refreshToken",
+        "password",
+        "p12",
+        "p12Pass",
+        "p12_pass",
+        "privateKey",
+        "certificatePem",
+        "caCertificate",
+    }
+)
 
 
-def _sanitize_response_for_logging(data: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_response_for_logging(data: Any) -> Any:
     """Mask sensitive fields in API response for safe logging.
 
     Args:
-        data: API response dictionary.
+        data: API response (typically a dictionary).
 
     Returns:
-        Copy of dict with sensitive values replaced by [REDACTED].
+        Copy of dict with sensitive values replaced by [REDACTED],
+        or original value if not a dict.
     """
     if not isinstance(data, dict):
         return data
@@ -90,7 +100,9 @@ def _extract_p12_credentials(
 
     try:
         # Clean base64 string: strip whitespace, newlines
-        cleaned = p12_base64.strip().replace("\n", "").replace("\r", "").replace(" ", "")
+        cleaned = (
+            p12_base64.strip().replace("\n", "").replace("\r", "").replace(" ", "")
+        )
 
         # Handle URL-safe base64 (convert - to + and _ to /)
         cleaned = cleaned.replace("-", "+").replace("_", "/")
@@ -155,7 +167,9 @@ class GoveeIotCredentials:
     @property
     def is_valid(self) -> bool:
         """Check if credentials appear valid."""
-        return bool(self.token and self.iot_cert and self.iot_key and self.account_topic)
+        return bool(
+            self.token and self.iot_cert and self.iot_key and self.account_topic
+        )
 
 
 class GoveeAuthClient:
@@ -233,16 +247,24 @@ class GoveeAuthClient:
                         "Govee IoT key request failed: status=%d message='%s' response=%s",
                         response.status,
                         message,
-                        _sanitize_response_for_logging(data) if isinstance(data, dict) else data,
+                        (
+                            _sanitize_response_for_logging(data)
+                            if isinstance(data, dict)
+                            else data
+                        ),
                     )
-                    raise GoveeApiError(f"Failed to get IoT key: {message}", code=response.status)
+                    raise GoveeApiError(
+                        f"Failed to get IoT key: {message}", code=response.status
+                    )
 
                 # IoT key response wraps data in a "data" field
                 return data.get("data", {}) if isinstance(data, dict) else {}
 
         except aiohttp.ClientError as err:
             _LOGGER.warning(
-                "Connection error fetching IoT key: %s (%s)", type(err).__name__, str(err)
+                "Connection error fetching IoT key: %s (%s)",
+                type(err).__name__,
+                str(err),
             )
             raise GoveeApiError(f"Connection error getting IoT key: {err}") from err
 
@@ -281,7 +303,9 @@ class GoveeAuthClient:
 
                 if response.status != 200:
                     message = data.get("message", f"HTTP {response.status}")
-                    raise GoveeApiError(f"Failed to get device list: {message}", code=response.status)
+                    raise GoveeApiError(
+                        f"Failed to get device list: {message}", code=response.status
+                    )
 
                 # Extract device topics from response
                 # Structure: devices[].device_ext.device_settings.topic
@@ -298,6 +322,7 @@ class GoveeAuthClient:
                     if isinstance(device_ext, str):
                         try:
                             import json
+
                             device_ext = json.loads(device_ext)
                         except (json.JSONDecodeError, TypeError):
                             device_ext = {}
@@ -307,6 +332,7 @@ class GoveeAuthClient:
                     if isinstance(device_settings, str):
                         try:
                             import json
+
                             device_settings = json.loads(device_settings)
                         except (json.JSONDecodeError, TypeError):
                             device_settings = {}
@@ -314,7 +340,9 @@ class GoveeAuthClient:
                     topic = device_settings.get("topic")
                     if topic:
                         device_topics[device_id] = topic
-                        _LOGGER.debug("Device %s has MQTT topic: %s...", device_id, topic[:30])
+                        _LOGGER.debug(
+                            "Device %s has MQTT topic: %s...", device_id, topic[:30]
+                        )
                     else:
                         # Log missing topics - group devices (numeric IDs) never have topics
                         # because they're virtual aggregation entities, not physical devices
@@ -334,7 +362,9 @@ class GoveeAuthClient:
                 return device_topics
 
         except aiohttp.ClientError as err:
-            raise GoveeApiError(f"Connection error fetching device topics: {err}") from err
+            raise GoveeApiError(
+                f"Connection error fetching device topics: {err}"
+            ) from err
 
     async def login(
         self,
@@ -389,7 +419,11 @@ class GoveeAuthClient:
                 if response.status == 401:
                     _LOGGER.debug(
                         "Govee login failed with HTTP 401. Response: %s",
-                        _sanitize_response_for_logging(data) if isinstance(data, dict) else data,
+                        (
+                            _sanitize_response_for_logging(data)
+                            if isinstance(data, dict)
+                            else data
+                        ),
                     )
                     raise GoveeAuthError("Invalid email or password", code=401)
 
@@ -399,9 +433,15 @@ class GoveeAuthClient:
                         "Govee login failed with HTTP %d: %s. Response: %s",
                         response.status,
                         message,
-                        _sanitize_response_for_logging(data) if isinstance(data, dict) else data,
+                        (
+                            _sanitize_response_for_logging(data)
+                            if isinstance(data, dict)
+                            else data
+                        ),
                     )
-                    raise GoveeApiError(f"Login failed: {message}", code=response.status)
+                    raise GoveeApiError(
+                        f"Login failed: {message}", code=response.status
+                    )
 
                 # Check response status code within JSON
                 status = data.get("status")
@@ -411,7 +451,11 @@ class GoveeAuthClient:
                         "Govee login error: status=%s message='%s' response=%s",
                         status,
                         message,
-                        _sanitize_response_for_logging(data) if isinstance(data, dict) else data,
+                        (
+                            _sanitize_response_for_logging(data)
+                            if isinstance(data, dict)
+                            else data
+                        ),
                     )
                     if status == 401 or "password" in message.lower():
                         raise GoveeAuthError(message, code=status)
@@ -439,16 +483,22 @@ class GoveeAuthClient:
                 if not (cert_pem and key_pem):
                     # Fall back to P12 container format
                     p12_base64 = iot_data.get("p12", "")
-                    p12_password = iot_data.get("p12Pass") or iot_data.get("p12_pass", "")
+                    p12_password = iot_data.get("p12Pass") or iot_data.get(
+                        "p12_pass", ""
+                    )
 
                     if not p12_base64:
                         raise GoveeApiError("No certificate data in IoT key response")
 
-                    cert_pem, key_pem = _extract_p12_credentials(p12_base64, p12_password)
+                    cert_pem, key_pem = _extract_p12_credentials(
+                        p12_base64, p12_password
+                    )
 
                 # Build MQTT client ID: AP/{accountId}/{uuid}
                 account_id = str(client_data.get("accountId", ""))
-                mqtt_client_id = f"AP/{account_id}/{client_id}" if account_id else client_id
+                mqtt_client_id = (
+                    f"AP/{account_id}/{client_id}" if account_id else client_id
+                )
 
                 credentials = GoveeIotCredentials(
                     token=token,
@@ -469,7 +519,9 @@ class GoveeAuthClient:
 
         except aiohttp.ClientError as err:
             _LOGGER.warning(
-                "Connection error during Govee login: %s (%s)", type(err).__name__, str(err)
+                "Connection error during Govee login: %s (%s)",
+                type(err).__name__,
+                str(err),
             )
             raise GoveeApiError(f"Connection error during login: {err}") from err
 

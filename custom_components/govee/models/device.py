@@ -127,12 +127,18 @@ class GoveeCapability:
     @property
     def is_color_rgb(self) -> bool:
         """Check if this is an RGB color capability."""
-        return self.type == CAPABILITY_COLOR_SETTING and self.instance == INSTANCE_COLOR_RGB
+        return (
+            self.type == CAPABILITY_COLOR_SETTING
+            and self.instance == INSTANCE_COLOR_RGB
+        )
 
     @property
     def is_color_temp(self) -> bool:
         """Check if this is a color temperature capability."""
-        return self.type == CAPABILITY_COLOR_SETTING and self.instance == INSTANCE_COLOR_TEMP
+        return (
+            self.type == CAPABILITY_COLOR_SETTING
+            and self.instance == INSTANCE_COLOR_TEMP
+        )
 
     @property
     def is_segment_color(self) -> bool:
@@ -283,7 +289,10 @@ class GoveeDevice:
         - Music setting capability (devices.capabilities.music_setting)
         - DIY scene support (which includes music reactive options)
         """
-        return any(cap.type == CAPABILITY_MUSIC_MODE for cap in self.capabilities) or self.supports_diy_scenes
+        return (
+            any(cap.type == CAPABILITY_MUSIC_MODE for cap in self.capabilities)
+            or self.supports_diy_scenes
+        )
 
     @property
     def is_plug(self) -> bool:
@@ -332,7 +341,10 @@ class GoveeDevice:
         Legacy devices use BLE passthrough via MQTT.
         """
         for cap in self.capabilities:
-            if cap.type == CAPABILITY_MUSIC_MODE and cap.instance == INSTANCE_MUSIC_MODE:
+            if (
+                cap.type == CAPABILITY_MUSIC_MODE
+                and cap.instance == INSTANCE_MUSIC_MODE
+            ):
                 # STRUCT capabilities have 'fields' array in parameters
                 return "fields" in cap.parameters
         return False
@@ -344,7 +356,10 @@ class GoveeDevice:
         Pattern validated in external repositories.
         """
         for cap in self.capabilities:
-            if cap.type == CAPABILITY_MUSIC_MODE and cap.instance == INSTANCE_MUSIC_MODE:
+            if (
+                cap.type == CAPABILITY_MUSIC_MODE
+                and cap.instance == INSTANCE_MUSIC_MODE
+            ):
                 for f in cap.parameters.get("fields", []):
                     if f.get("fieldName") == "musicMode":
                         options: list[dict[str, Any]] = f.get("options", [])
@@ -357,7 +372,10 @@ class GoveeDevice:
         Returns (min, max) tuple, defaulting to (0, 100).
         """
         for cap in self.capabilities:
-            if cap.type == CAPABILITY_MUSIC_MODE and cap.instance == INSTANCE_MUSIC_MODE:
+            if (
+                cap.type == CAPABILITY_MUSIC_MODE
+                and cap.instance == INSTANCE_MUSIC_MODE
+            ):
                 for f in cap.parameters.get("fields", []):
                     if f.get("fieldName") == "sensitivity":
                         range_info = f.get("range", {})
@@ -369,7 +387,11 @@ class GoveeDevice:
         """Check if device is a light (not a plug, fan, or other appliance)."""
         if self.is_fan or self.is_plug:
             return False
-        return self.device_type == DEVICE_TYPE_LIGHT or self.supports_rgb or self.supports_color_temp
+        return (
+            self.device_type == DEVICE_TYPE_LIGHT
+            or self.supports_rgb
+            or self.supports_color_temp
+        )
 
     @property
     def brightness_range(self) -> tuple[int, int]:

@@ -17,7 +17,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import GoveeCoordinator
 from .entity import GoveeEntity
-from .models import GoveeDevice, MusicModeCommand, PowerCommand, create_dreamview_command, create_night_light_command
+from .models import (
+    GoveeDevice,
+    MusicModeCommand,
+    PowerCommand,
+    create_night_light_command,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,18 +58,30 @@ async def async_setup_entry(
             )
         elif device.has_struct_music_mode:
             # STRUCT-based music mode - uses REST API, no MQTT required
-            entities.append(GoveeMusicModeSwitchEntity(coordinator, device, use_rest_api=True))
+            entities.append(
+                GoveeMusicModeSwitchEntity(coordinator, device, use_rest_api=True)
+            )
             _LOGGER.debug("Created STRUCT music mode switch entity for %s", device.name)
         elif device.supports_music_mode and coordinator.mqtt_connected:
             # Legacy BLE-based music mode - requires MQTT
-            entities.append(GoveeMusicModeSwitchEntity(coordinator, device, use_rest_api=False))
+            entities.append(
+                GoveeMusicModeSwitchEntity(coordinator, device, use_rest_api=False)
+            )
             _LOGGER.debug("Created BLE music mode switch entity for %s", device.name)
 
         # Create switch for DreamView (Movie Mode) toggle
         # Skip for group devices - groups don't support DreamView
-        if device.supports_dreamview and not device.is_group:
+        # DreamView uses BLE passthrough via MQTT (REST API returns 400 for some devices)
+        if (
+            device.supports_dreamview
+            and not device.is_group
+            and coordinator.mqtt_connected
+        ):
             entities.append(GoveeDreamViewSwitchEntity(coordinator, device))
-            _LOGGER.debug("Created DreamView switch entity for %s", device.name)
+            _LOGGER.debug(
+                "Created DreamView switch entity for %s (using BLE passthrough)",
+                device.name,
+            )
 
     async_add_entities(entities)
     _LOGGER.debug("Set up %d Govee switch entities", len(entities))
@@ -302,6 +319,7 @@ class GoveeDreamViewSwitchEntity(GoveeEntity, SwitchEntity):
     """Govee DreamView (Movie Mode) toggle switch entity.
 
     Controls DreamView mode for devices that support it (e.g., Immersion TV backlights).
+    Uses BLE passthrough via MQTT since REST API returns 400 for some devices (e.g., H6199).
 
     DreamView, Music Mode, and Scenes are mutually exclusive on the device.
     When DreamView is turned on, music mode and scene states are cleared.
@@ -325,6 +343,16 @@ class GoveeDreamViewSwitchEntity(GoveeEntity, SwitchEntity):
         self._attr_name = "DreamView"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available.
+
+        DreamView via BLE requires MQTT connection.
+        """
+        if not self.coordinator.mqtt_connected:
+            return False
+        return super().available
+
+    @property
     def is_on(self) -> bool:
         """Return True if DreamView is on.
 
@@ -336,23 +364,22 @@ class GoveeDreamViewSwitchEntity(GoveeEntity, SwitchEntity):
         return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn DreamView on.
+        """Turn DreamView on via BLE passthrough.
 
         This clears music mode and scene states due to mutual exclusion.
         """
-        success = await self.coordinator.async_control_device(
+        success = await self.coordinator.async_send_dreamview(
             self._device_id,
-            create_dreamview_command(enabled=True),
+            enabled=True,
         )
         if success:
-            # State update with mutual exclusion is handled in coordinator
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn DreamView off."""
-        success = await self.coordinator.async_control_device(
+        """Turn DreamView off via BLE passthrough."""
+        success = await self.coordinator.async_send_dreamview(
             self._device_id,
-            create_dreamview_command(enabled=False),
+            enabled=False,
         )
         if success:
             self.async_write_ha_state()

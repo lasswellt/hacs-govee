@@ -7,15 +7,17 @@ import base64
 import pytest
 
 from custom_components.govee.api.ble_packet import (
+    DREAMVIEW_COMMAND,
+    DREAMVIEW_INDICATOR,
     MUSIC_MODE_COMMAND,
     MUSIC_MODE_INDICATOR,
     MUSIC_PACKET_PREFIX,
+    build_dreamview_packet,
     build_music_mode_packet,
     build_packet,
     calculate_checksum,
     encode_packet_base64,
 )
-
 
 # ==============================================================================
 # Checksum Tests
@@ -330,3 +332,112 @@ class TestMusicModePacketIntegration:
         assert decoded == packet
         assert decoded[3] == 0x00  # Disabled
         assert decoded[4] == 50  # Sensitivity
+
+
+# ==============================================================================
+# DreamView Packet Tests
+# ==============================================================================
+
+
+class TestBuildDreamviewPacket:
+    """Test DreamView packet building."""
+
+    def test_packet_length(self):
+        """Test DreamView packet is 20 bytes."""
+        packet = build_dreamview_packet(True)
+        assert len(packet) == 20
+
+    def test_packet_header(self):
+        """Test DreamView packet has correct header."""
+        packet = build_dreamview_packet(True)
+
+        # Byte 0: Standard command prefix (0x33)
+        assert packet[0] == MUSIC_PACKET_PREFIX
+        assert packet[0] == 0x33
+
+        # Byte 1: DreamView command (0x05, same as music mode)
+        assert packet[1] == DREAMVIEW_COMMAND
+        assert packet[1] == 0x05
+
+        # Byte 2: DreamView indicator (0x04, scene mode)
+        assert packet[2] == DREAMVIEW_INDICATOR
+        assert packet[2] == 0x04
+
+    def test_enabled_byte_position(self):
+        """Test enabled value is at correct position (byte 3)."""
+        packet_on = build_dreamview_packet(True)
+        assert packet_on[3] == 0x01
+
+        packet_off = build_dreamview_packet(False)
+        assert packet_off[3] == 0x00
+
+    def test_enabled_on(self):
+        """Test DreamView enabled packet."""
+        packet = build_dreamview_packet(True)
+        assert packet[3] == 0x01
+
+    def test_enabled_off(self):
+        """Test DreamView disabled packet."""
+        packet = build_dreamview_packet(False)
+        assert packet[3] == 0x00
+
+    def test_valid_checksum(self):
+        """Test packet has valid checksum."""
+        packet = build_dreamview_packet(True)
+
+        # Recalculate checksum from first 19 bytes
+        expected_checksum = calculate_checksum(list(packet[:19]))
+        assert packet[19] == expected_checksum
+
+    def test_different_from_music_mode(self):
+        """Test DreamView packet differs from music mode packet."""
+        dreamview_packet = build_dreamview_packet(True)
+        music_packet = build_music_mode_packet(True, 50)
+
+        # Byte 2 should differ (0x04 vs 0x01)
+        assert dreamview_packet[2] == 0x04
+        assert music_packet[2] == 0x01
+
+        # Overall packets should be different
+        assert dreamview_packet != music_packet
+
+
+# ==============================================================================
+# Integration Tests for DreamView Packet
+# ==============================================================================
+
+
+class TestDreamviewPacketIntegration:
+    """Integration tests for DreamView packet generation."""
+
+    def test_full_workflow_on(self):
+        """Test complete DreamView ON packet generation workflow."""
+        # Build packet
+        packet = build_dreamview_packet(True)
+        assert len(packet) == 20
+
+        # Encode for transmission
+        encoded = encode_packet_base64(packet)
+        assert isinstance(encoded, str)
+
+        # Verify can be decoded back
+        decoded = base64.b64decode(encoded)
+        assert decoded == packet
+        assert decoded[2] == 0x04  # DreamView indicator
+        assert decoded[3] == 0x01  # Enabled
+
+    def test_full_workflow_off(self):
+        """Test complete DreamView OFF packet generation workflow."""
+        # Build packet
+        packet = build_dreamview_packet(False)
+        assert len(packet) == 20
+
+        # Encode for transmission
+        encoded = encode_packet_base64(packet)
+        assert isinstance(encoded, str)
+
+        # Verify can be decoded back
+        decoded = base64.b64decode(encoded)
+        assert decoded == packet
+        assert decoded[2] == 0x04  # DreamView indicator
+        assert decoded[3] == 0x00  # Disabled

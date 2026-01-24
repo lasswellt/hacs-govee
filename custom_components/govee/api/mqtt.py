@@ -330,7 +330,11 @@ class GoveeAwsIotClient:
         """
         try:
             raw_payload = message.payload
-            payload_str = raw_payload.decode() if isinstance(raw_payload, bytes) else str(raw_payload)
+            payload_str = (
+                raw_payload.decode()
+                if isinstance(raw_payload, bytes)
+                else str(raw_payload)
+            )
 
             data = json.loads(payload_str)
 
@@ -348,7 +352,9 @@ class GoveeAwsIotClient:
                 return
 
             if not state:
-                _LOGGER.debug("AWS IoT message missing state for %s, ignoring", device_id)
+                _LOGGER.debug(
+                    "AWS IoT message missing state for %s, ignoring", device_id
+                )
                 return
 
             _LOGGER.debug(

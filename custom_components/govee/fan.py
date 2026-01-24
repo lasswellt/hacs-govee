@@ -123,7 +123,9 @@ class GoveeFanEntity(GoveeEntity, FanEntity):
         if state.work_mode == WORK_MODE_GEAR and state.mode_value is not None:
             try:
                 speed_name = ORDERED_NAMED_FAN_SPEEDS[state.mode_value - 1]
-                return ordered_list_item_to_percentage(ORDERED_NAMED_FAN_SPEEDS, speed_name)
+                return ordered_list_item_to_percentage(
+                    ORDERED_NAMED_FAN_SPEEDS, speed_name
+                )
             except (IndexError, ValueError):
                 _LOGGER.debug("Unknown mode_value: %s", state.mode_value)
 
@@ -188,7 +190,9 @@ class GoveeFanEntity(GoveeEntity, FanEntity):
             return
 
         # Convert percentage to speed name (low/medium/high)
-        speed_name = percentage_to_ordered_list_item(ORDERED_NAMED_FAN_SPEEDS, percentage)
+        speed_name = percentage_to_ordered_list_item(
+            ORDERED_NAMED_FAN_SPEEDS, percentage
+        )
         # Convert to mode_value (1/2/3)
         mode_value = ORDERED_NAMED_FAN_SPEEDS.index(speed_name) + 1
 

@@ -89,7 +89,9 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
 
             except GoveeAuthError as err:
                 _LOGGER.warning(
-                    "API key validation failed: %s (code=%s)", err, getattr(err, "code", None)
+                    "API key validation failed: %s (code=%s)",
+                    err,
+                    getattr(err, "code", None),
                 )
                 errors["base"] = "invalid_auth"
             except GoveeApiError as err:
@@ -132,7 +134,9 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
 
             try:
-                self._iot_credentials = await validate_govee_credentials(email, password)
+                self._iot_credentials = await validate_govee_credentials(
+                    email, password
+                )
                 self._email = email
                 self._password = password
 
@@ -308,7 +312,9 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
                         errors["base"] = "invalid_account"
                         # Continue to show form with error
                     except GoveeApiError as err:
-                        _LOGGER.warning("Account validation failed during reconfigure: %s", err)
+                        _LOGGER.warning(
+                            "Account validation failed during reconfigure: %s", err
+                        )
                         errors["base"] = "cannot_connect"
                 elif not email and not password:
                     # Remove account credentials if both are empty
@@ -398,11 +404,15 @@ class GoveeOptionsFlow(OptionsFlow):
                     ): bool,
                     vol.Optional(
                         CONF_ENABLE_DIY_SCENES,
-                        default=options.get(CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES),
+                        default=options.get(
+                            CONF_ENABLE_DIY_SCENES, DEFAULT_ENABLE_DIY_SCENES
+                        ),
                     ): bool,
                     vol.Optional(
                         CONF_ENABLE_SEGMENTS,
-                        default=options.get(CONF_ENABLE_SEGMENTS, DEFAULT_ENABLE_SEGMENTS),
+                        default=options.get(
+                            CONF_ENABLE_SEGMENTS, DEFAULT_ENABLE_SEGMENTS
+                        ),
                     ): bool,
                 }
             ),

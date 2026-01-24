@@ -25,6 +25,10 @@ MUSIC_PACKET_PREFIX = 0x33
 MUSIC_MODE_COMMAND = 0x05
 MUSIC_MODE_INDICATOR = 0x01
 
+# DreamView (Movie Mode) packet constants
+DREAMVIEW_COMMAND = 0x05  # Same as music mode command byte
+DREAMVIEW_INDICATOR = 0x04  # Scene mode indicator (vs 0x01 for music)
+
 # DIY style name to value mapping for select entity
 DIY_STYLE_NAMES: dict[str, int] = {
     "Fade": 0x00,
@@ -99,6 +103,28 @@ def build_music_mode_packet(enabled: bool, sensitivity: int = 50) -> bytes:
         sensitivity,  # Sensitivity 0-100
     ]
 
+    return build_packet(data)
+
+
+def build_dreamview_packet(enabled: bool) -> bytes:
+    """Build DreamView (Movie Mode) control packet.
+
+    Uses the scene mode indicator (0x04) with on/off value.
+    Follows same pattern as music mode but with different indicator.
+
+    Args:
+        enabled: True to enable DreamView, False to disable.
+
+    Returns:
+        20-byte BLE packet for DreamView command.
+    """
+    # Packet: 33 05 04 [enabled] 00...00 [XOR]
+    data = [
+        MUSIC_PACKET_PREFIX,  # 0x33 - Standard command prefix
+        DREAMVIEW_COMMAND,  # 0x05 - Color/mode command
+        DREAMVIEW_INDICATOR,  # 0x04 - Scene mode indicator
+        0x01 if enabled else 0x00,  # Enabled state
+    ]
     return build_packet(data)
 
 

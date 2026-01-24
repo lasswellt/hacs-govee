@@ -188,20 +188,22 @@ class GoveeApiClient:
             )
 
         if response.status == 400:
-            message = data.get("message", "Bad request")
+            # Govee API uses both "message" and "msg" for errors
+            message = data.get("message") or data.get("msg", "Bad request")
+            _LOGGER.debug("API 400 error response: %s", data)
             # Check for "devices not exist" error (expected for groups)
             if "not exist" in message.lower():
                 raise GoveeDeviceNotFoundError(message)
             raise GoveeApiError(message, code=400)
 
         if response.status >= 400:
-            message = data.get("message", f"HTTP {response.status}")
+            message = data.get("message") or data.get("msg", f"HTTP {response.status}")
             raise GoveeApiError(message, code=response.status)
 
         # Check response code within JSON
         code = data.get("code")
         if code is not None and code != 200:
-            message = data.get("message", f"API error code {code}")
+            message = data.get("message") or data.get("msg", f"API error code {code}")
             if code == 401:
                 raise GoveeAuthError(message)
             raise GoveeApiError(message, code=code)

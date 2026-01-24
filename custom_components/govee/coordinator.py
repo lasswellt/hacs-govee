@@ -223,24 +223,40 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
 
             # Pre-populate scene cache for devices with scene capabilities
             # This ensures scene entities are created on initial setup
-            _LOGGER.debug("Pre-populating scene cache for %d devices", len(self._devices))
+            _LOGGER.debug(
+                "Pre-populating scene cache for %d devices", len(self._devices)
+            )
             for device_id, device in self._devices.items():
                 if device.supports_scenes:
                     try:
-                        scenes = await self._api_client.get_dynamic_scenes(device_id, device.sku)
+                        scenes = await self._api_client.get_dynamic_scenes(
+                            device_id, device.sku
+                        )
                         self._scene_cache[device_id] = scenes
-                        _LOGGER.debug("Cached %d scenes for %s", len(scenes), device.name)
+                        _LOGGER.debug(
+                            "Cached %d scenes for %s", len(scenes), device.name
+                        )
                     except GoveeApiError as err:
-                        _LOGGER.warning("Failed to pre-fetch scenes for %s: %s", device.name, err)
+                        _LOGGER.warning(
+                            "Failed to pre-fetch scenes for %s: %s", device.name, err
+                        )
                         self._scene_cache[device_id] = []
 
                 if device.supports_diy_scenes:
                     try:
-                        diy_scenes = await self._api_client.get_diy_scenes(device_id, device.sku)
+                        diy_scenes = await self._api_client.get_diy_scenes(
+                            device_id, device.sku
+                        )
                         self._diy_scene_cache[device_id] = diy_scenes
-                        _LOGGER.debug("Cached %d DIY scenes for %s", len(diy_scenes), device.name)
+                        _LOGGER.debug(
+                            "Cached %d DIY scenes for %s", len(diy_scenes), device.name
+                        )
                     except GoveeApiError as err:
-                        _LOGGER.warning("Failed to pre-fetch DIY scenes for %s: %s", device.name, err)
+                        _LOGGER.warning(
+                            "Failed to pre-fetch DIY scenes for %s: %s",
+                            device.name,
+                            err,
+                        )
                         self._diy_scene_cache[device_id] = []
 
             # Clear any auth issues on success
@@ -415,7 +431,9 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                     state.active_scene = existing_state.active_scene
                 else:
                     # Device is off, clear the scene
-                    _LOGGER.debug("Clearing scene for %s (device turned off)", device_id)
+                    _LOGGER.debug(
+                        "Clearing scene for %s (device turned off)", device_id
+                    )
 
             # Preserve DreamView optimistic state
             # API often returns stale data that doesn't reflect recent commands
@@ -423,7 +441,9 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                 if state.power_state:
                     state.dreamview_enabled = existing_state.dreamview_enabled
                 else:
-                    _LOGGER.debug("Clearing DreamView for %s (device turned off)", device_id)
+                    _LOGGER.debug(
+                        "Clearing DreamView for %s (device turned off)", device_id
+                    )
 
             # Preserve Music Mode optimistic state
             if existing_state and existing_state.music_mode_enabled:
@@ -433,20 +453,26 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                     state.music_mode_name = existing_state.music_mode_name
                     state.music_sensitivity = existing_state.music_sensitivity
                 else:
-                    _LOGGER.debug("Clearing music mode for %s (device turned off)", device_id)
+                    _LOGGER.debug(
+                        "Clearing music mode for %s (device turned off)", device_id
+                    )
 
             # Preserve DIY scene optimistic state
             if existing_state and existing_state.active_diy_scene:
                 if state.power_state:
                     state.active_diy_scene = existing_state.active_diy_scene
                 else:
-                    _LOGGER.debug("Clearing DIY scene for %s (device turned off)", device_id)
+                    _LOGGER.debug(
+                        "Clearing DIY scene for %s (device turned off)", device_id
+                    )
 
             return state
 
         except GoveeDeviceNotFoundError:
             # Expected for group devices - use existing/optimistic state
-            _LOGGER.debug("State query failed for group device %s [expected]", device_id)
+            _LOGGER.debug(
+                "State query failed for group device %s [expected]", device_id
+            )
             existing = self._states.get(device_id)
             if existing:
                 existing.online = True  # Group devices are always "available"
@@ -513,7 +539,9 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
             _LOGGER.error("Control command failed: %s", err)
             return False
 
-    async def async_send_music_mode(self, device_id: str, enabled: bool, sensitivity: int = 50) -> bool:
+    async def async_send_music_mode(
+        self, device_id: str, enabled: bool, sensitivity: int = 50
+    ) -> bool:
         """Send music mode command via BLE passthrough.
 
         Sends a ptReal MQTT command to enable/disable music reactive mode.
@@ -571,6 +599,103 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
             )
 
         return success
+
+    async def async_send_dreamview(self, device_id: str, enabled: bool) -> bool:
+        """Send DreamView command via BLE passthrough.
+
+        For devices where REST API DreamView toggle doesn't work (e.g., H6199),
+        this sends a ptReal MQTT command to enable/disable DreamView mode.
+
+        Args:
+            device_id: Device identifier.
+            enabled: True to enable DreamView, False to disable.
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if not self.mqtt_connected:
+            _LOGGER.warning(
+                "Cannot send DreamView for %s: MQTT not connected",
+                device_id,
+            )
+            return False
+
+        device = self._devices.get(device_id)
+        if not device:
+            _LOGGER.error("Unknown device for DreamView: %s", device_id)
+            return False
+
+        from .api.ble_packet import build_dreamview_packet, encode_packet_base64
+
+        packet = build_dreamview_packet(enabled)
+        encoded = encode_packet_base64(packet)
+
+        device_topic = self._device_topics.get(device_id)
+
+        if self._mqtt_client is None:
+            return False
+
+        success = await self._mqtt_client.async_publish_ptreal(
+            device_id,
+            device.sku,
+            encoded,
+            device_topic,
+        )
+
+        if success:
+            state = self._states.get(device_id)
+            if state:
+                state.apply_optimistic_dreamview(enabled)
+            _LOGGER.debug(
+                "Sent DreamView %s to %s via BLE passthrough",
+                "ON" if enabled else "OFF",
+                device.name,
+            )
+
+        return success
+
+    async def async_send_diy_style(
+        self, device_id: str, style: str, speed: int = 50
+    ) -> bool:
+        """Send DIY style command via BLE passthrough.
+
+        Note: DIY style changes require complex multi-packet BLE sequences.
+        This is a placeholder that applies optimistic state only.
+        Full BLE packet implementation is not yet available.
+
+        Args:
+            device_id: Device identifier.
+            style: DIY style name (Fade, Jumping, Flicker, Marquee, Music).
+            speed: Animation speed 0-100 (default 50).
+
+        Returns:
+            True if optimistic state was applied.
+        """
+        device = self._devices.get(device_id)
+        if not device:
+            _LOGGER.error("Unknown device for DIY style: %s", device_id)
+            return False
+
+        from .api.ble_packet import DIY_STYLE_NAMES
+
+        style_value = DIY_STYLE_NAMES.get(style)
+        if style_value is None:
+            _LOGGER.warning("Unknown DIY style: %s", style)
+            return False
+
+        # Apply optimistic state update
+        state = self._states.get(device_id)
+        if state:
+            state.apply_optimistic_diy_style(style, style_value)
+
+        _LOGGER.debug(
+            "Applied DIY style '%s' (value=%d) to %s (optimistic only)",
+            style,
+            style_value,
+            device.name,
+        )
+
+        return True
 
     def _apply_optimistic_update(
         self,
@@ -655,7 +780,9 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
 
         device = self._devices.get(device_id)
         if not device:
-            _LOGGER.warning("Device %s not found in coordinator for scene fetch", device_id)
+            _LOGGER.warning(
+                "Device %s not found in coordinator for scene fetch", device_id
+            )
             return []
 
         _LOGGER.debug(
@@ -709,7 +836,9 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
 
         device = self._devices.get(device_id)
         if not device:
-            _LOGGER.warning("Device %s not found in coordinator for DIY scene fetch", device_id)
+            _LOGGER.warning(
+                "Device %s not found in coordinator for DIY scene fetch", device_id
+            )
             return []
 
         _LOGGER.debug(
