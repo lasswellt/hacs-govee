@@ -46,6 +46,27 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _validate_api_key_format(api_key: str) -> tuple[str, str | None]:
+    """Validate API key format before making API call.
+
+    Returns (cleaned_key, error_key or None).
+    """
+    if not api_key:
+        return api_key, "invalid_api_key_format"
+
+    cleaned = api_key.strip()
+
+    # Govee API keys are UUID format (36 chars with hyphens) or similar
+    if len(cleaned) < 36:
+        return api_key, "invalid_api_key_format"
+
+    # Check for obvious mistakes - spaces in the middle
+    if " " in cleaned:
+        return api_key, "invalid_api_key_format"
+
+    return cleaned, None
+
+
 class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Govee.
 
@@ -80,26 +101,31 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             api_key = user_input[CONF_API_KEY]
 
-            try:
-                await validate_api_key(api_key)
-                self._api_key = api_key
+            # Validate format before making API call
+            cleaned_key, format_error = _validate_api_key_format(api_key)
+            if format_error:
+                errors["base"] = format_error
+            else:
+                try:
+                    await validate_api_key(cleaned_key)
+                    self._api_key = cleaned_key
 
-                # Proceed to optional account step for MQTT
-                return await self.async_step_account()
+                    # Proceed to optional account step for MQTT
+                    return await self.async_step_account()
 
-            except GoveeAuthError as err:
-                _LOGGER.warning(
-                    "API key validation failed: %s (code=%s)",
-                    err,
-                    getattr(err, "code", None),
-                )
-                errors["base"] = "invalid_auth"
-            except GoveeApiError as err:
-                _LOGGER.error("API validation failed: %s", err)
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error during API validation")
-                errors["base"] = "unknown"
+                except GoveeAuthError as err:
+                    _LOGGER.warning(
+                        "API key validation failed: %s (code=%s)",
+                        err,
+                        getattr(err, "code", None),
+                    )
+                    errors["base"] = "invalid_auth"
+                except GoveeApiError as err:
+                    _LOGGER.error("API validation failed: %s", err)
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected error during API validation")
+                    errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
@@ -125,37 +151,43 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Check if user wants to skip MQTT
-            if not user_input.get(CONF_EMAIL):
-                # Skip MQTT, create entry with API key only
+            email = user_input.get(CONF_EMAIL, "").strip()
+            password = user_input.get(CONF_PASSWORD, "").strip()
+
+            # Both empty = skip MQTT
+            if not email and not password:
                 return self._create_entry()
 
-            email = user_input[CONF_EMAIL]
-            password = user_input[CONF_PASSWORD]
+            # One provided without the other
+            if email and not password:
+                errors["base"] = "email_without_password"
+            elif password and not email:
+                errors["base"] = "password_without_email"
+            else:
+                # Both provided - validate with API
+                try:
+                    self._iot_credentials = await validate_govee_credentials(
+                        email, password
+                    )
+                    self._email = email
+                    self._password = password
 
-            try:
-                self._iot_credentials = await validate_govee_credentials(
-                    email, password
-                )
-                self._email = email
-                self._password = password
+                    return self._create_entry()
 
-                return self._create_entry()
-
-            except GoveeAuthError as err:
-                _LOGGER.warning(
-                    "Govee account validation failed for '%s': %s (code=%s)",
-                    email,
-                    err,
-                    getattr(err, "code", None),
-                )
-                errors["base"] = "invalid_auth"
-            except GoveeApiError as err:
-                _LOGGER.error("Account validation failed: %s", err)
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error during account validation")
-                errors["base"] = "unknown"
+                except GoveeAuthError as err:
+                    _LOGGER.warning(
+                        "Govee account validation failed for '%s': %s (code=%s)",
+                        email,
+                        err,
+                        getattr(err, "code", None),
+                    )
+                    errors["base"] = "invalid_account"
+                except GoveeApiError as err:
+                    _LOGGER.error("Account validation failed: %s", err)
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected error during account validation")
+                    errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="account",
@@ -166,9 +198,6 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
-            description_placeholders={
-                "note": "Optional: Enter Govee account for real-time MQTT updates",
-            },
         )
 
     def _clear_mqtt_cache(self, entry_id: str) -> None:
@@ -229,34 +258,39 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             api_key = user_input[CONF_API_KEY]
 
-            try:
-                await validate_api_key(api_key)
+            # Validate format before API call
+            cleaned_key, format_error = _validate_api_key_format(api_key)
+            if format_error:
+                errors["base"] = format_error
+            else:
+                try:
+                    await validate_api_key(cleaned_key)
 
-                # Update existing entry
-                entry = self.hass.config_entries.async_get_entry(
-                    self.context["entry_id"]
-                )
-                if entry:
-                    self.hass.config_entries.async_update_entry(
-                        entry,
-                        data={**entry.data, CONF_API_KEY: api_key},
+                    # Update existing entry
+                    entry = self.hass.config_entries.async_get_entry(
+                        self.context["entry_id"]
                     )
-                    await self.hass.config_entries.async_reload(entry.entry_id)
-                    return self.async_abort(reason="reauth_successful")
+                    if entry:
+                        self.hass.config_entries.async_update_entry(
+                            entry,
+                            data={**entry.data, CONF_API_KEY: cleaned_key},
+                        )
+                        await self.hass.config_entries.async_reload(entry.entry_id)
+                        return self.async_abort(reason="reauth_successful")
 
-            except GoveeAuthError as err:
-                _LOGGER.warning(
-                    "API key validation failed during reauth: %s (code=%s)",
-                    err,
-                    getattr(err, "code", None),
-                )
-                errors["base"] = "invalid_auth"
-            except GoveeApiError as err:
-                _LOGGER.warning("API validation failed during reauth: %s", err)
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error during reauth")
-                errors["base"] = "unknown"
+                except GoveeAuthError as err:
+                    _LOGGER.warning(
+                        "API key validation failed during reauth: %s (code=%s)",
+                        err,
+                        getattr(err, "code", None),
+                    )
+                    errors["base"] = "invalid_auth"
+                except GoveeApiError as err:
+                    _LOGGER.warning("API validation failed during reauth: %s", err)
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected error during reauth")
+                    errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -283,66 +317,84 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             api_key = user_input[CONF_API_KEY]
 
-            try:
-                await validate_api_key(api_key)
+            # Validate API key format first
+            cleaned_key, format_error = _validate_api_key_format(api_key)
+            if format_error:
+                errors["base"] = format_error
+            else:
+                try:
+                    await validate_api_key(cleaned_key)
 
-                # Build updated data
-                new_data: dict[str, Any] = {
-                    **reconfigure_entry.data,
-                    CONF_API_KEY: api_key,
-                }
+                    # Build updated data
+                    new_data: dict[str, Any] = {
+                        **reconfigure_entry.data,
+                        CONF_API_KEY: cleaned_key,
+                    }
 
-                # Handle optional account credentials
-                email = user_input.get(CONF_EMAIL, "").strip()
-                password = user_input.get(CONF_PASSWORD, "").strip()
+                    # Handle optional account credentials
+                    email = user_input.get(CONF_EMAIL, "").strip()
+                    password = user_input.get(CONF_PASSWORD, "").strip()
 
-                if email and password:
-                    # Validate account credentials if provided
-                    try:
-                        await validate_govee_credentials(email, password)
-                        new_data[CONF_EMAIL] = email
-                        new_data[CONF_PASSWORD] = password
-                    except GoveeAuthError as err:
-                        _LOGGER.warning(
-                            "Govee account validation failed for '%s' during reconfigure: %s (code=%s)",
-                            email,
-                            err,
-                            getattr(err, "code", None),
+                    if email and password:
+                        # Validate account credentials if provided
+                        try:
+                            await validate_govee_credentials(email, password)
+                            new_data[CONF_EMAIL] = email
+                            new_data[CONF_PASSWORD] = password
+                        except GoveeAuthError as err:
+                            _LOGGER.warning(
+                                "Govee account validation failed for '%s' during reconfigure: %s (code=%s)",
+                                email,
+                                err,
+                                getattr(err, "code", None),
+                            )
+                            errors["base"] = "invalid_account"
+                            # Continue to show form with error
+                        except GoveeApiError as err:
+                            _LOGGER.warning(
+                                "Account validation failed during reconfigure: %s", err
+                            )
+                            errors["base"] = "cannot_connect"
+                    elif email and not password:
+                        # Email without password - check if keeping existing password
+                        existing_email = reconfigure_entry.data.get(CONF_EMAIL, "")
+                        existing_password = reconfigure_entry.data.get(CONF_PASSWORD, "")
+                        if email == existing_email and existing_password:
+                            # Keeping same email with existing password - OK
+                            new_data[CONF_EMAIL] = email
+                            new_data[CONF_PASSWORD] = existing_password
+                        else:
+                            # New email without password
+                            errors["base"] = "email_without_password"
+                    elif password and not email:
+                        errors["base"] = "password_without_email"
+                    else:
+                        # Both empty - remove account credentials
+                        new_data.pop(CONF_EMAIL, None)
+                        new_data.pop(CONF_PASSWORD, None)
+
+                    if not errors:
+                        # Clear cached MQTT credentials/failure to allow fresh login attempt
+                        self._clear_mqtt_cache(reconfigure_entry.entry_id)
+
+                        return self.async_update_reload_and_abort(
+                            reconfigure_entry,
+                            data_updates=new_data,
                         )
-                        errors["base"] = "invalid_account"
-                        # Continue to show form with error
-                    except GoveeApiError as err:
-                        _LOGGER.warning(
-                            "Account validation failed during reconfigure: %s", err
-                        )
-                        errors["base"] = "cannot_connect"
-                elif not email and not password:
-                    # Remove account credentials if both are empty
-                    new_data.pop(CONF_EMAIL, None)
-                    new_data.pop(CONF_PASSWORD, None)
 
-                if not errors:
-                    # Clear cached MQTT credentials/failure to allow fresh login attempt
-                    self._clear_mqtt_cache(reconfigure_entry.entry_id)
-
-                    return self.async_update_reload_and_abort(
-                        reconfigure_entry,
-                        data_updates=new_data,
+                except GoveeAuthError as err:
+                    _LOGGER.warning(
+                        "API key validation failed during reconfigure: %s (code=%s)",
+                        err,
+                        getattr(err, "code", None),
                     )
-
-            except GoveeAuthError as err:
-                _LOGGER.warning(
-                    "API key validation failed during reconfigure: %s (code=%s)",
-                    err,
-                    getattr(err, "code", None),
-                )
-                errors["base"] = "invalid_auth"
-            except GoveeApiError as err:
-                _LOGGER.warning("API validation failed during reconfigure: %s", err)
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error during reconfigure")
-                errors["base"] = "unknown"
+                    errors["base"] = "invalid_auth"
+                except GoveeApiError as err:
+                    _LOGGER.warning("API validation failed during reconfigure: %s", err)
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected error during reconfigure")
+                    errors["base"] = "unknown"
 
         # Pre-fill current values (except sensitive data)
         current_email = reconfigure_entry.data.get(CONF_EMAIL, "")

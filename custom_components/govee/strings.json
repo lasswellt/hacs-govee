@@ -3,17 +3,24 @@
     "step": {
       "user": {
         "title": "Govee API Key",
-        "description": "Enter your Govee API key from {api_url}",
+        "description": "Enter your Govee Developer API key from {api_url}\n\nThis is NOT your Govee account password - it's a separate developer key.",
         "data": {
           "api_key": "API Key"
+        },
+        "data_description": {
+          "api_key": "The API key from your Govee Developer account (a long string of letters and numbers)"
         }
       },
       "account": {
         "title": "Govee Account (Optional)",
-        "description": "Enter Govee account credentials for real-time MQTT updates. Leave empty to skip.",
+        "description": "For real-time updates, enter your Govee mobile app credentials below.\n\n**Important:** Use the email and password from the Govee mobile app. The app password may be different from the Govee website password.\n\nTo skip this step, leave both fields empty and submit.",
         "data": {
-          "email": "Email",
-          "password": "Password"
+          "email": "Govee App Email",
+          "password": "Govee App Password"
+        },
+        "data_description": {
+          "email": "The email address you use to sign into the Govee mobile app",
+          "password": "The password you use to sign into the Govee mobile app (not the website)"
         }
       },
       "reauth_confirm": {
@@ -25,23 +32,26 @@
       },
       "reconfigure": {
         "title": "Reconfigure Govee",
-        "description": "Update your Govee credentials. Current email: {current_email}",
+        "description": "Update your credentials. Current email: {current_email}",
         "data": {
           "api_key": "API Key",
-          "email": "Email (optional)",
-          "password": "Password (optional)"
+          "email": "Govee App Email (optional)",
+          "password": "Govee App Password (optional)"
         },
         "data_description": {
-          "api_key": "Your Govee API key",
-          "email": "Govee account email for real-time MQTT updates",
-          "password": "Leave empty to keep existing password, or enter new password"
+          "api_key": "Your Govee Developer API key from developer.govee.com",
+          "email": "Email for Govee mobile app (leave empty to remove MQTT)",
+          "password": "Password for Govee mobile app (leave empty to keep existing)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid API key or credentials",
-      "invalid_account": "Invalid Govee account credentials",
-      "cannot_connect": "Failed to connect to Govee API",
+      "invalid_auth": "Invalid API key. Check that you're using the developer key from developer.govee.com, not your account password.",
+      "invalid_account": "Invalid Govee app credentials. Make sure you're using the password from the Govee mobile app (not the website).",
+      "invalid_api_key_format": "API key appears invalid. It should be a long string (36+ characters) from developer.govee.com.",
+      "password_without_email": "Please enter both email and password, or leave both empty to skip.",
+      "email_without_password": "Please enter both email and password, or leave both empty to skip.",
+      "cannot_connect": "Failed to connect to Govee API. Check your internet connection.",
       "unknown": "Unexpected error occurred"
     },
     "abort": {
