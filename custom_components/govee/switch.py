@@ -44,7 +44,14 @@ async def async_setup_entry(
         # Create switch for music mode toggle
         # STRUCT-based devices use REST API (no MQTT required)
         # Legacy devices use BLE passthrough via MQTT
-        if device.has_struct_music_mode:
+        # Skip for group devices - groups don't support music mode (no MQTT topic)
+        if device.is_group:
+            _LOGGER.debug(
+                "Skipping music mode/DreamView switches for group device %s "
+                "(groups don't support these features)",
+                device.name,
+            )
+        elif device.has_struct_music_mode:
             # STRUCT-based music mode - uses REST API, no MQTT required
             entities.append(GoveeMusicModeSwitchEntity(coordinator, device, use_rest_api=True))
             _LOGGER.debug("Created STRUCT music mode switch entity for %s", device.name)
@@ -54,7 +61,8 @@ async def async_setup_entry(
             _LOGGER.debug("Created BLE music mode switch entity for %s", device.name)
 
         # Create switch for DreamView (Movie Mode) toggle
-        if device.supports_dreamview:
+        # Skip for group devices - groups don't support DreamView
+        if device.supports_dreamview and not device.is_group:
             entities.append(GoveeDreamViewSwitchEntity(coordinator, device))
             _LOGGER.debug("Created DreamView switch entity for %s", device.name)
 

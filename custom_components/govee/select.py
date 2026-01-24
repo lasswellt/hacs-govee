@@ -59,11 +59,23 @@ async def async_setup_entry(
 
     for device in coordinator.devices.values():
         _LOGGER.debug(
-            "Device %s: supports_scenes=%s supports_diy_scenes=%s",
+            "Device %s: supports_scenes=%s supports_diy_scenes=%s is_group=%s",
             device.name,
             device.supports_scenes,
             device.supports_diy_scenes,
+            device.is_group,
         )
+
+        # Skip scene/DIY/music mode entities for group devices
+        # Groups are virtual aggregation entities that don't support these features
+        # via the API - they only support basic power/brightness/color control
+        if device.is_group:
+            _LOGGER.debug(
+                "Skipping scene/DIY/music entities for group device %s "
+                "(groups don't support these features)",
+                device.name,
+            )
+            continue
 
         # Dynamic scenes
         if enable_scenes and device.supports_scenes:

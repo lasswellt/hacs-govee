@@ -315,6 +315,20 @@ class GoveeAuthClient:
                     if topic:
                         device_topics[device_id] = topic
                         _LOGGER.debug("Device %s has MQTT topic: %s...", device_id, topic[:30])
+                    else:
+                        # Log missing topics - group devices (numeric IDs) never have topics
+                        # because they're virtual aggregation entities, not physical devices
+                        is_likely_group = device_id.isdigit() if device_id else False
+                        if is_likely_group:
+                            _LOGGER.debug(
+                                "Group device %s has no MQTT topic (expected - groups are virtual)",
+                                device_id,
+                            )
+                        else:
+                            _LOGGER.debug(
+                                "Device %s has no MQTT topic in response",
+                                device_id,
+                            )
 
                 _LOGGER.info("Fetched MQTT topics for %d devices", len(device_topics))
                 return device_topics
